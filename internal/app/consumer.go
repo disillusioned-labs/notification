@@ -15,9 +15,14 @@ import (
 	"github.com/disillusioned-labs/notification/internal/consumer"
 	"github.com/disillusioned-labs/notification/internal/platform/kafka"
 	"github.com/disillusioned-labs/notification/internal/platform/postgres"
+	"github.com/disillusioned-labs/notification/internal/platform/retry"
 	"github.com/disillusioned-labs/notification/internal/platform/telemetry"
+	"github.com/disillusioned-labs/notification/internal/provider"
+	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
+	"github.com/disillusioned-labs/notification/internal/service/outbox"
+	"github.com/disillusioned-labs/notification/internal/worker"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel"
 
@@ -162,11 +167,53 @@ func RunConsumer(cfg *config.Config) error {
 	repo := repository.NewStore(pool)
 
 	// -------------------------------------------------------------------------
+	// Retry
+	// -------------------------------------------------------------------------
+	retryPolicy := retry.RetryPolicy{
+		MaxAttempts:  cfg.Kafka.Consumer.Retry.MaxAttempts,
+		InitialDelay: cfg.Kafka.Consumer.Retry.InitialDelay,
+		MaxDelay:     cfg.Kafka.Consumer.Retry.MaxDelay,
+	}
+
+	if err := retryPolicy.Validate(); err != nil {
+		return fmt.Errorf(
+			"validate consumer retry policy: %w",
+			err,
+		)
+	}
+
+	// -------------------------------------------------------------------------
+	// Provider
+	// -------------------------------------------------------------------------
+	resendConfig := resend.Config{
+		APIKey: "",
+		From:   "",
+	}
+	resendProvider, err := resend.NewResendProvider(resendConfig)
+	if err != nil {
+		return fmt.Errorf(
+			"failed create resend provider: %w",
+			err,
+		)
+	}
+
+	providers := provider.NewRegistry()
+	err = providers.Register("resend", resendProvider)
+	if err != nil {
+		return fmt.Errorf(
+			"failed register resend provider: %w",
+			err,
+		)
+	}
+
+	// -------------------------------------------------------------------------
 	// Service
 	// -------------------------------------------------------------------------
-
 	notificationService := notification.NewNotificationService(
+		cfg.Service.InstanceID,
 		repo,
+		providers,
+		retryPolicy,
 		log,
 	)
 
@@ -207,27 +254,9 @@ func RunConsumer(cfg *config.Config) error {
 	)
 
 	// -------------------------------------------------------------------------
-	// Retry
-	// -------------------------------------------------------------------------
-
-	retryPolicy := consumer.RetryPolicy{
-		MaxAttempts:  cfg.Kafka.Consumer.Retry.MaxAttempts,
-		InitialDelay: cfg.Kafka.Consumer.Retry.InitialDelay,
-		MaxDelay:     cfg.Kafka.Consumer.Retry.MaxDelay,
-	}
-
-	if err := retryPolicy.Validate(); err != nil {
-		return fmt.Errorf(
-			"validate consumer retry policy: %w",
-			err,
-		)
-	}
-
-	// -------------------------------------------------------------------------
 	// Consumer
 	// -------------------------------------------------------------------------
-
-	worker := consumer.NewConsumer(
+	consumer := consumer.NewConsumer(
 		kafkaConsumer,
 		dlqPublisher,
 		notificationService,
@@ -237,12 +266,35 @@ func RunConsumer(cfg *config.Config) error {
 	)
 
 	// -------------------------------------------------------------------------
+	// Outbox
+	// -------------------------------------------------------------------------
+	outboxMetrics := outbox.NewMetrics()
+	outboxService := outbox.NewOutboxService(
+		repo,
+		kafkaProducer,
+		log,
+		outboxMetrics,
+	)
+
+	outboxWorker := worker.NewOutboxWorker(
+		cfg.Service.InstanceID,
+		outboxService,
+		log,
+		worker.WithInterval(time.Second),
+		worker.WithBatchSize(100),
+	)
+
+	// -------------------------------------------------------------------------
 	// Run
 	// -------------------------------------------------------------------------
 	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return worker.Run(runCtx)
+		return consumer.Run(runCtx)
+	})
+
+	g.Go(func() error {
+		return outboxWorker.Run(runCtx)
 	})
 
 	<-runCtx.Done()

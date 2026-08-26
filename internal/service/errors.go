@@ -15,6 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+var (
+	ErrDuplicateEvent       = errors.New("notification event already processed")
+	ErrNotificationNotFound = errors.New("notification not found")
+	ErrDeliveryNotFound     = errors.New("delivery not found")
+)
+
 // Error is a domain error that knows how it surfaces over HTTP.
 //
 // Status and Code live here rather than in a switch inside the handler layer

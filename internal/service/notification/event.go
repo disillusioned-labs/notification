@@ -13,25 +13,26 @@ const (
 )
 
 type NotificationEvent struct {
-	ID            string
-	Type          string
-	Version       int
+	EventID       string
+	EventType     string
+	EventVersion  int
 	SourceService string
 	AggregateType string
 	AggregateID   string
+	TraceID       string
 	Payload       []byte
 }
 
 func (e NotificationEvent) Validate() error {
-	if e.ID == "" {
+	if e.EventID == "" {
 		return errors.New("event id is required")
 	}
 
-	if e.Type == "" {
+	if e.EventType == "" {
 		return errors.New("event type is required")
 	}
 
-	if e.Version <= 0 {
+	if e.EventVersion <= 0 {
 		return errors.New("event version must be greater than zero")
 	}
 
@@ -55,7 +56,7 @@ func (e NotificationEvent) Validate() error {
 }
 
 func (e NotificationEvent) DecodePayload() (any, error) {
-	switch e.Type {
+	switch e.EventType {
 	case EventTypeNotificationCreated:
 		var payload NotificationCreatedEvent
 
@@ -90,30 +91,107 @@ func (e NotificationEvent) DecodePayload() (any, error) {
 		return payload, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported event type %q", e.Type)
+		return nil, fmt.Errorf("unsupported event type %q", e.EventType)
 	}
 }
 
 type NotificationCreatedEvent struct {
-	NotificationID string                `json:"notification_id"`
-	Recipient      NotificationRecipient `json:"recipient"`
-	Channels       []NotificationChannel `json:"channels"`
-	Payload        json.RawMessage       `json:"payload"`
+	NotificationType string               `json:"notification_type"`
+	Category         string               `json:"category"`
+	RecipientID      string               `json:"recipient_id"`
+	Targets          []NotificationTarget `json:"targets"`
+	Payload          json.RawMessage      `json:"payload"`
 }
 
-type NotificationRecipient struct {
-	UserID string `json:"user_id"`
+type NotificationTarget struct {
+	Channel     string `json:"channel"`
+	Destination string `json:"destination"`
 }
 
-type NotificationChannel struct {
-	Channel  string `json:"channel"`
-	Template string `json:"template"`
+func (e NotificationCreatedEvent) Validate() error {
+	if e.NotificationType == "" {
+		return errors.New("notification type is required")
+	}
+
+	if e.Category == "" {
+		return errors.New("category is required")
+	}
+
+	if e.RecipientID == "" {
+		return errors.New("recipient id is required")
+	}
+
+	if len(e.Targets) == 0 {
+		return errors.New("at least one target is required")
+	}
+
+	if len(e.Payload) == 0 {
+		return errors.New("payload is required")
+	}
+
+	if !json.Valid(e.Payload) {
+		return errors.New("payload must be valid JSON")
+	}
+
+	seenChannels := make(map[string]struct{}, len(e.Targets))
+
+	for i, target := range e.Targets {
+		if err := target.Validate(); err != nil {
+			return fmt.Errorf("target[%d]: %w", i, err)
+		}
+
+		if _, exists := seenChannels[target.Channel]; exists {
+			return fmt.Errorf(
+				"target[%d]: duplicate channel %q",
+				i,
+				target.Channel,
+			)
+		}
+
+		seenChannels[target.Channel] = struct{}{}
+	}
+
+	return nil
+}
+
+func (t NotificationTarget) Validate() error {
+	if t.Channel == "" {
+		return errors.New("channel is required")
+	}
+
+	switch t.Channel {
+	case "email", "sms", "push":
+	default:
+		return fmt.Errorf("unsupported channel %q", t.Channel)
+	}
+
+	if t.Destination == "" {
+		return errors.New("destination is required")
+	}
+
+	return nil
 }
 
 type NotificationDeliveryRequestedEvent struct {
 	DeliveryID string `json:"delivery_id"`
 }
 
+func (e NotificationDeliveryRequestedEvent) Validate() error {
+	if e.DeliveryID == "" {
+		return errors.New("delivery_id is required")
+	}
+
+	return nil
+}
+
 type NotificationDeliveryRetryEvent struct {
 	DeliveryID string `json:"delivery_id"`
+}
+
+func (e NotificationDeliveryRetryEvent) Validate() error {
+	if e.DeliveryID == "" {
+		return errors.New("delivery_id is required")
+	}
+
+	return nil
 }

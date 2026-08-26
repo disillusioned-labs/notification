@@ -12,26 +12,29 @@ import (
 )
 
 type Querier interface {
-	CancelDelivery(ctx context.Context, id uuid.UUID) (NotificationDelivery, error)
-	ClaimDeliveries(ctx context.Context, arg ClaimDeliveriesParams) ([]NotificationDelivery, error)
-	ClaimNextDelivery(ctx context.Context, workerID pgtype.Text) (NotificationDelivery, error)
+	ClaimDelivery(ctx context.Context, arg ClaimDeliveryParams) (NotificationDelivery, error)
+	ClaimPendingOutboxEvents(ctx context.Context, arg ClaimPendingOutboxEventsParams) ([]OutboxEvent, error)
 	CreateDeliveryAttempt(ctx context.Context, arg CreateDeliveryAttemptParams) (NotificationDeliveryAttempt, error)
 	CreateNotification(ctx context.Context, arg CreateNotificationParams) (Notification, error)
 	CreateNotificationDelivery(ctx context.Context, arg CreateNotificationDeliveryParams) (NotificationDelivery, error)
-	DeactivateProvider(ctx context.Context, name string) (Provider, error)
-	GetDeliveryAttempt(ctx context.Context, arg GetDeliveryAttemptParams) (NotificationDeliveryAttempt, error)
+	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) (OutboxEvent, error)
+	DeletePublishedOutboxEvents(ctx context.Context) (int64, error)
+	GetDeliveryAttempts(ctx context.Context, deliveryID uuid.UUID) ([]NotificationDeliveryAttempt, error)
 	GetDeliveryByID(ctx context.Context, id uuid.UUID) (NotificationDelivery, error)
-	GetDeliveryByNotificationAndChannel(ctx context.Context, arg GetDeliveryByNotificationAndChannelParams) (NotificationDelivery, error)
-	GetNotificationByEventID(ctx context.Context, eventID string) (Notification, error)
+	GetDeliveryWithNotification(ctx context.Context, id uuid.UUID) (GetDeliveryWithNotificationRow, error)
+	GetLatestDeliveryAttempt(ctx context.Context, deliveryID uuid.UUID) (NotificationDeliveryAttempt, error)
+	GetNotificationByID(ctx context.Context, id uuid.UUID) (GetNotificationByIDRow, error)
 	GetProviderByName(ctx context.Context, name string) (Provider, error)
 	ListActiveProvidersByType(ctx context.Context, type_ string) ([]Provider, error)
-	ListDeliveriesByNotificationID(ctx context.Context, notificationID uuid.UUID) ([]NotificationDelivery, error)
-	ListDeliveryAttempts(ctx context.Context, deliveryID uuid.UUID) ([]NotificationDeliveryAttempt, error)
-	MarkDeliveryFailed(ctx context.Context, arg MarkDeliveryFailedParams) (NotificationDelivery, error)
-	MarkDeliverySent(ctx context.Context, arg MarkDeliverySentParams) (NotificationDelivery, error)
-	ReclaimStaleDeliveries(ctx context.Context, leaseTimeout pgtype.Interval) ([]NotificationDelivery, error)
-	ScheduleDeliveryRetry(ctx context.Context, arg ScheduleDeliveryRetryParams) (NotificationDelivery, error)
-	UpsertProvider(ctx context.Context, arg UpsertProviderParams) (Provider, error)
+	ListReadyRetryDeliveries(ctx context.Context, arg ListReadyRetryDeliveriesParams) ([]uuid.UUID, error)
+	MarkDeliveryFailed(ctx context.Context, arg MarkDeliveryFailedParams) (int64, error)
+	MarkDeliveryRetry(ctx context.Context, arg MarkDeliveryRetryParams) (int64, error)
+	MarkDeliverySent(ctx context.Context, arg MarkDeliverySentParams) (int64, error)
+	MarkOutboxEventFailed(ctx context.Context, arg MarkOutboxEventFailedParams) error
+	MarkOutboxEventPublished(ctx context.Context, id uuid.UUID) error
+	NotificationExistsByEventID(ctx context.Context, eventID string) (bool, error)
+	ReclaimAbandonedDeliveries(ctx context.Context, lockedAt pgtype.Timestamptz) ([]NotificationDelivery, error)
+	ReleaseOutboxEventLock(ctx context.Context, id uuid.UUID) error
 }
 
 var _ Querier = (*Queries)(nil)

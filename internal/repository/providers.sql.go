@@ -9,27 +9,6 @@ import (
 	"context"
 )
 
-const deactivateProvider = `-- name: DeactivateProvider :one
-UPDATE providers
-SET is_active = false
-WHERE name = $1 RETURNING name, type, config, priority, is_active, created_at, updated_at
-`
-
-func (q *Queries) DeactivateProvider(ctx context.Context, name string) (Provider, error) {
-	row := q.db.QueryRow(ctx, deactivateProvider, name)
-	var i Provider
-	err := row.Scan(
-		&i.Name,
-		&i.Type,
-		&i.Config,
-		&i.Priority,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getProviderByName = `-- name: GetProviderByName :one
 SELECT name, type, config, priority, is_active, created_at, updated_at
 FROM providers
@@ -85,53 +64,4 @@ func (q *Queries) ListActiveProvidersByType(ctx context.Context, type_ string) (
 		return nil, err
 	}
 	return items, nil
-}
-
-const upsertProvider = `-- name: UpsertProvider :one
-INSERT INTO providers (name,
-                       type,
-                       config,
-                       priority,
-                       is_active)
-VALUES ($1,
-        $2,
-        $3,
-        $4,
-        $5) ON CONFLICT (name)
-DO
-UPDATE SET
-    type = EXCLUDED.type,
-    config = EXCLUDED.config,
-    priority = EXCLUDED.priority,
-    is_active = EXCLUDED.is_active
-    RETURNING name, type, config, priority, is_active, created_at, updated_at
-`
-
-type UpsertProviderParams struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Config   []byte `json:"config"`
-	Priority int32  `json:"priority"`
-	IsActive bool   `json:"is_active"`
-}
-
-func (q *Queries) UpsertProvider(ctx context.Context, arg UpsertProviderParams) (Provider, error) {
-	row := q.db.QueryRow(ctx, upsertProvider,
-		arg.Name,
-		arg.Type,
-		arg.Config,
-		arg.Priority,
-		arg.IsActive,
-	)
-	var i Provider
-	err := row.Scan(
-		&i.Name,
-		&i.Type,
-		&i.Config,
-		&i.Priority,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }

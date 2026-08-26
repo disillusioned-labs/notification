@@ -8,27 +8,23 @@ package repository
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createNotification = `-- name: CreateNotification :one
-INSERT INTO notifications (
-    event_id,
-    notification_type,
-    category,
-    recipient_id,
-    payload,
-    trace_id
-)
-VALUES (
-           $1,
-           $2,
-           $3,
-           $4,
-           $5,
-           $6
-       )
-    RETURNING id, event_id, notification_type, category, recipient_id, payload, trace_id, created_at, updated_at
+INSERT INTO notifications (event_id,
+                           notification_type,
+                           category,
+                           recipient_id,
+                           payload,
+                           trace_id)
+VALUES ($1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6) RETURNING id, event_id, notification_type, category, recipient_id, payload, trace_id, created_at, updated_at
 `
 
 type CreateNotificationParams struct {
@@ -64,25 +60,49 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 	return i, err
 }
 
-const getNotificationByEventID = `-- name: GetNotificationByEventID :one
-SELECT id, event_id, notification_type, category, recipient_id, payload, trace_id, created_at, updated_at
+const getNotificationByID = `-- name: GetNotificationByID :one
+SELECT event_id,
+       notification_type,
+       category,
+       recipient_id,
+       payload,
+       trace_id
 FROM notifications
-WHERE event_id = $1
+WHERE id = $1
 `
 
-func (q *Queries) GetNotificationByEventID(ctx context.Context, eventID string) (Notification, error) {
-	row := q.db.QueryRow(ctx, getNotificationByEventID, eventID)
-	var i Notification
+type GetNotificationByIDRow struct {
+	EventID          string      `json:"event_id"`
+	NotificationType string      `json:"notification_type"`
+	Category         string      `json:"category"`
+	RecipientID      string      `json:"recipient_id"`
+	Payload          []byte      `json:"payload"`
+	TraceID          pgtype.Text `json:"trace_id"`
+}
+
+func (q *Queries) GetNotificationByID(ctx context.Context, id uuid.UUID) (GetNotificationByIDRow, error) {
+	row := q.db.QueryRow(ctx, getNotificationByID, id)
+	var i GetNotificationByIDRow
 	err := row.Scan(
-		&i.ID,
 		&i.EventID,
 		&i.NotificationType,
 		&i.Category,
 		&i.RecipientID,
 		&i.Payload,
 		&i.TraceID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const notificationExistsByEventID = `-- name: NotificationExistsByEventID :one
+SELECT EXISTS (SELECT 1
+               FROM notifications
+               WHERE event_id = $1)
+`
+
+func (q *Queries) NotificationExistsByEventID(ctx context.Context, eventID string) (bool, error) {
+	row := q.db.QueryRow(ctx, notificationExistsByEventID, eventID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

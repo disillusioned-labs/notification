@@ -27,7 +27,7 @@ type NotificationDelivery struct {
 	ID             uuid.UUID          `json:"id"`
 	NotificationID uuid.UUID          `json:"notification_id"`
 	Channel        string             `json:"channel"`
-	Provider       pgtype.Text        `json:"provider"`
+	Provider       string             `json:"provider"`
 	Destination    string             `json:"destination"`
 	Status         string             `json:"status"`
 	RetryCount     int32              `json:"retry_count"`
@@ -52,6 +52,23 @@ type NotificationDeliveryAttempt struct {
 	ErrorMessage      pgtype.Text `json:"error_message"`
 	Response          []byte      `json:"response"`
 	CreatedAt         time.Time   `json:"created_at"`
+}
+
+type OutboxEvent struct {
+	ID            uuid.UUID          `json:"id"`
+	AggregateType string             `json:"aggregate_type"`
+	AggregateID   uuid.UUID          `json:"aggregate_id"`
+	EventType     string             `json:"event_type"`
+	EventVersion  int32              `json:"event_version"`
+	Payload       []byte             `json:"payload"`
+	CreatedAt     time.Time          `json:"created_at"`
+	PublishedAt   pgtype.Timestamptz `json:"published_at"`
+	TraceID       pgtype.Text        `json:"trace_id"`
+	AttemptCount  int32              `json:"attempt_count"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LockedAt      pgtype.Timestamptz `json:"locked_at"`
+	LockedBy      pgtype.Text        `json:"locked_by"`
+	LastError     pgtype.Text        `json:"last_error"`
 }
 
 type Provider struct {

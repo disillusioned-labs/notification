@@ -76,9 +76,9 @@ func decodeNotificationEvent(
 	}
 
 	event := notification.NotificationEvent{
-		ID:            eventID,
-		Type:          eventType,
-		Version:       version,
+		EventID:       eventID,
+		EventType:     eventType,
+		EventVersion:  version,
 		SourceService: sourceService,
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,

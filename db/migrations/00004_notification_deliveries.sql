@@ -12,7 +12,7 @@ CREATE TABLE notification_deliveries
     channel         VARCHAR(20)  NOT NULL,
 
     -- Provider name snapshot.
-    provider        VARCHAR(50),
+    provider        VARCHAR(50) NOT NULL,
 
     -- Snapshot of the destination at delivery creation time.
     destination     VARCHAR(500) NOT NULL,

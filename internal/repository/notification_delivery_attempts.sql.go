@@ -13,24 +13,29 @@ import (
 )
 
 const createDeliveryAttempt = `-- name: CreateDeliveryAttempt :one
-INSERT INTO notification_delivery_attempts (delivery_id,
-                                            attempt_number,
-                                            provider,
-                                            provider_message_id,
-                                            status,
-                                            http_status_code,
-                                            error_type,
-                                            error_message,
-                                            response)
-VALUES ($1,
-        $2,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8,
-        $9) RETURNING id, delivery_id, attempt_number, provider, provider_message_id, status, http_status_code, error_type, error_message, response, created_at
+INSERT INTO notification_delivery_attempts (
+    delivery_id,
+    attempt_number,
+    provider,
+    provider_message_id,
+    status,
+    http_status_code,
+    error_type,
+    error_message,
+    response
+)
+VALUES (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5,
+           $6,
+           $7,
+           $8,
+           $9
+       )
+    RETURNING id, delivery_id, attempt_number, provider, provider_message_id, status, http_status_code, error_type, error_message, response, created_at
 `
 
 type CreateDeliveryAttemptParams struct {
@@ -74,46 +79,26 @@ func (q *Queries) CreateDeliveryAttempt(ctx context.Context, arg CreateDeliveryA
 	return i, err
 }
 
-const getDeliveryAttempt = `-- name: GetDeliveryAttempt :one
-SELECT id, delivery_id, attempt_number, provider, provider_message_id, status, http_status_code, error_type, error_message, response, created_at
-FROM notification_delivery_attempts
-WHERE delivery_id = $1
-  AND attempt_number = $2
-`
-
-type GetDeliveryAttemptParams struct {
-	DeliveryID    uuid.UUID `json:"delivery_id"`
-	AttemptNumber int32     `json:"attempt_number"`
-}
-
-func (q *Queries) GetDeliveryAttempt(ctx context.Context, arg GetDeliveryAttemptParams) (NotificationDeliveryAttempt, error) {
-	row := q.db.QueryRow(ctx, getDeliveryAttempt, arg.DeliveryID, arg.AttemptNumber)
-	var i NotificationDeliveryAttempt
-	err := row.Scan(
-		&i.ID,
-		&i.DeliveryID,
-		&i.AttemptNumber,
-		&i.Provider,
-		&i.ProviderMessageID,
-		&i.Status,
-		&i.HttpStatusCode,
-		&i.ErrorType,
-		&i.ErrorMessage,
-		&i.Response,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const listDeliveryAttempts = `-- name: ListDeliveryAttempts :many
-SELECT id, delivery_id, attempt_number, provider, provider_message_id, status, http_status_code, error_type, error_message, response, created_at
+const getDeliveryAttempts = `-- name: GetDeliveryAttempts :many
+SELECT
+    id,
+    delivery_id,
+    attempt_number,
+    provider,
+    provider_message_id,
+    status,
+    http_status_code,
+    error_type,
+    error_message,
+    response,
+    created_at
 FROM notification_delivery_attempts
 WHERE delivery_id = $1
 ORDER BY attempt_number ASC
 `
 
-func (q *Queries) ListDeliveryAttempts(ctx context.Context, deliveryID uuid.UUID) ([]NotificationDeliveryAttempt, error) {
-	rows, err := q.db.Query(ctx, listDeliveryAttempts, deliveryID)
+func (q *Queries) GetDeliveryAttempts(ctx context.Context, deliveryID uuid.UUID) ([]NotificationDeliveryAttempt, error) {
+	rows, err := q.db.Query(ctx, getDeliveryAttempts, deliveryID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,4 +127,42 @@ func (q *Queries) ListDeliveryAttempts(ctx context.Context, deliveryID uuid.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const getLatestDeliveryAttempt = `-- name: GetLatestDeliveryAttempt :one
+SELECT
+    id,
+    delivery_id,
+    attempt_number,
+    provider,
+    provider_message_id,
+    status,
+    http_status_code,
+    error_type,
+    error_message,
+    response,
+    created_at
+FROM notification_delivery_attempts
+WHERE delivery_id = $1
+ORDER BY attempt_number DESC
+    LIMIT 1
+`
+
+func (q *Queries) GetLatestDeliveryAttempt(ctx context.Context, deliveryID uuid.UUID) (NotificationDeliveryAttempt, error) {
+	row := q.db.QueryRow(ctx, getLatestDeliveryAttempt, deliveryID)
+	var i NotificationDeliveryAttempt
+	err := row.Scan(
+		&i.ID,
+		&i.DeliveryID,
+		&i.AttemptNumber,
+		&i.Provider,
+		&i.ProviderMessageID,
+		&i.Status,
+		&i.HttpStatusCode,
+		&i.ErrorType,
+		&i.ErrorMessage,
+		&i.Response,
+		&i.CreatedAt,
+	)
+	return i, err
 }

@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
 
@@ -42,8 +44,9 @@ type Config struct {
 // and SERVICE_ENV. Bare NAME and ENV are the two most collision-prone names in
 // an unprefixed environment - generic enough that unrelated tooling sets them.
 type ServiceConfig struct {
-	Name string `mapstructure:"name"`
-	Env  string `mapstructure:"env"`
+	Name       string `mapstructure:"name"`
+	Env        string `mapstructure:"env"`
+	InstanceID string `mapstructure:"instance_id"`
 }
 
 // Env values accepted in SERVICE_ENV; they gate log formatting defaults and are
@@ -313,6 +316,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 	cfg.Kafka.Brokers = normalizeKafkaBrokers(cfg.Kafka.Brokers)
+	cfg.Service.InstanceID = instanceID()
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -597,4 +601,12 @@ func normalizeKafkaBrokers(brokers []string) []string {
 	}
 
 	return result
+}
+
+func instanceID() string {
+	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		return hostname
+	}
+
+	return uuid.NewString()
 }

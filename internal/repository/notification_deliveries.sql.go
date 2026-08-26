@@ -7,139 +7,54 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const cancelDelivery = `-- name: CancelDelivery :one
+const claimDelivery = `-- name: ClaimDelivery :one
 UPDATE notification_deliveries
-SET
-    status = 'cancelled',
-    next_retry_at = NULL,
-    locked_by = NULL,
-    locked_at = NULL
+SET status     = 'processing',
+    locked_at  = NOW(),
+    locked_by  = $2,
+    updated_at = NOW()
 WHERE id = $1
-  AND status IN ('pending', 'retry')
-    RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
-`
-
-func (q *Queries) CancelDelivery(ctx context.Context, id uuid.UUID) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, cancelDelivery, id)
-	var i NotificationDelivery
-	err := row.Scan(
-		&i.ID,
-		&i.NotificationID,
-		&i.Channel,
-		&i.Provider,
-		&i.Destination,
-		&i.Status,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.NextRetryAt,
-		&i.LockedBy,
-		&i.LockedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SentAt,
-	)
-	return i, err
-}
-
-const claimDeliveries = `-- name: ClaimDeliveries :many
-WITH candidates AS (
-    SELECT id
-    FROM notification_deliveries
-    WHERE status = 'pending'
-       OR (
+  AND (
+    status = 'pending'
+        OR (
         status = 'retry'
-            AND next_retry_at <= now()
+            AND next_retry_at <= NOW()
         )
-    ORDER BY
-        COALESCE(next_retry_at, created_at),
-        created_at,
-        id
-    FOR UPDATE SKIP LOCKED
-    LIMIT $2
-)
-UPDATE notification_deliveries AS d
-SET
-    status = 'processing',
-    locked_by = $1,
-    locked_at = now()
-    FROM candidates
-WHERE d.id = candidates.id
-    RETURNING d.id, d.notification_id, d.channel, d.provider, d.destination, d.status, d.retry_count, d.max_retries, d.next_retry_at, d.locked_by, d.locked_at, d.created_at, d.updated_at, d.sent_at
+    )
+  AND (
+    locked_at IS NULL
+        OR locked_at < NOW() - INTERVAL '5 minutes'
+    )
+    RETURNING
+    id,
+    notification_id,
+    channel,
+    provider,
+    destination,
+    status,
+    retry_count,
+    max_retries,
+    next_retry_at,
+    locked_by,
+    locked_at,
+    created_at,
+    updated_at,
+    sent_at
 `
 
-type ClaimDeliveriesParams struct {
-	WorkerID  pgtype.Text `json:"worker_id"`
-	BatchSize int32       `json:"batch_size"`
+type ClaimDeliveryParams struct {
+	ID       uuid.UUID   `json:"id"`
+	LockedBy pgtype.Text `json:"locked_by"`
 }
 
-func (q *Queries) ClaimDeliveries(ctx context.Context, arg ClaimDeliveriesParams) ([]NotificationDelivery, error) {
-	rows, err := q.db.Query(ctx, claimDeliveries, arg.WorkerID, arg.BatchSize)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []NotificationDelivery{}
-	for rows.Next() {
-		var i NotificationDelivery
-		if err := rows.Scan(
-			&i.ID,
-			&i.NotificationID,
-			&i.Channel,
-			&i.Provider,
-			&i.Destination,
-			&i.Status,
-			&i.RetryCount,
-			&i.MaxRetries,
-			&i.NextRetryAt,
-			&i.LockedBy,
-			&i.LockedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SentAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const claimNextDelivery = `-- name: ClaimNextDelivery :one
-WITH candidate AS (
-    SELECT id
-    FROM notification_deliveries
-    WHERE status = 'pending'
-       OR (
-        status = 'retry'
-            AND next_retry_at <= now()
-        )
-    ORDER BY
-        COALESCE(next_retry_at, created_at),
-        created_at,
-        id
-    FOR UPDATE SKIP LOCKED
-    LIMIT 1
-)
-UPDATE notification_deliveries AS d
-SET
-    status = 'processing',
-    locked_by = $1,
-    locked_at = now()
-    FROM candidate
-WHERE d.id = candidate.id
-    RETURNING d.id, d.notification_id, d.channel, d.provider, d.destination, d.status, d.retry_count, d.max_retries, d.next_retry_at, d.locked_by, d.locked_at, d.created_at, d.updated_at, d.sent_at
-`
-
-func (q *Queries) ClaimNextDelivery(ctx context.Context, workerID pgtype.Text) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, claimNextDelivery, workerID)
+func (q *Queries) ClaimDelivery(ctx context.Context, arg ClaimDeliveryParams) (NotificationDelivery, error) {
+	row := q.db.QueryRow(ctx, claimDelivery, arg.ID, arg.LockedBy)
 	var i NotificationDelivery
 	err := row.Scan(
 		&i.ID,
@@ -161,29 +76,28 @@ func (q *Queries) ClaimNextDelivery(ctx context.Context, workerID pgtype.Text) (
 }
 
 const createNotificationDelivery = `-- name: CreateNotificationDelivery :one
-INSERT INTO notification_deliveries (
-    notification_id,
-    channel,
-    provider,
-    destination,
-    max_retries
-)
-VALUES (
-           $1,
-           $2,
-           $3,
-           $4,
-           $5
-       )
-    RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
+INSERT INTO notification_deliveries (notification_id,
+                                     channel,
+                                     provider,
+                                     destination,
+                                     status,
+                                     retry_count,
+                                     max_retries)
+VALUES ($1,
+        $2,
+        $3,
+        $4,
+        'pending',
+        0,
+        $5) RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
 `
 
 type CreateNotificationDeliveryParams struct {
-	NotificationID uuid.UUID   `json:"notification_id"`
-	Channel        string      `json:"channel"`
-	Provider       pgtype.Text `json:"provider"`
-	Destination    string      `json:"destination"`
-	MaxRetries     int32       `json:"max_retries"`
+	NotificationID uuid.UUID `json:"notification_id"`
+	Channel        string    `json:"channel"`
+	Provider       string    `json:"provider"`
+	Destination    string    `json:"destination"`
+	MaxRetries     int32     `json:"max_retries"`
 }
 
 func (q *Queries) CreateNotificationDelivery(ctx context.Context, arg CreateNotificationDeliveryParams) (NotificationDelivery, error) {
@@ -215,7 +129,20 @@ func (q *Queries) CreateNotificationDelivery(ctx context.Context, arg CreateNoti
 }
 
 const getDeliveryByID = `-- name: GetDeliveryByID :one
-SELECT id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
+SELECT id,
+       notification_id,
+       channel,
+       provider,
+       destination,
+       status,
+       retry_count,
+       max_retries,
+       next_retry_at,
+       locked_by,
+       locked_at,
+       created_at,
+       updated_at,
+       sent_at
 FROM notification_deliveries
 WHERE id = $1
 `
@@ -242,21 +169,53 @@ func (q *Queries) GetDeliveryByID(ctx context.Context, id uuid.UUID) (Notificati
 	return i, err
 }
 
-const getDeliveryByNotificationAndChannel = `-- name: GetDeliveryByNotificationAndChannel :one
-SELECT id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
-FROM notification_deliveries
-WHERE notification_id = $1
-  AND channel = $2
+const getDeliveryWithNotification = `-- name: GetDeliveryWithNotification :one
+SELECT d.id,
+       d.notification_id,
+       d.channel,
+       d.provider,
+       d.destination,
+       d.status,
+       d.retry_count,
+       d.max_retries,
+       d.next_retry_at,
+       d.locked_by,
+       d.locked_at,
+       d.created_at,
+       d.updated_at,
+       d.sent_at,
+       n.notification_type,
+       n.category,
+       n.payload AS notification_payload
+FROM notification_deliveries AS d
+         JOIN notifications AS n
+              ON n.id = d.notification_id
+WHERE d.id = $1
 `
 
-type GetDeliveryByNotificationAndChannelParams struct {
-	NotificationID uuid.UUID `json:"notification_id"`
-	Channel        string    `json:"channel"`
+type GetDeliveryWithNotificationRow struct {
+	ID                  uuid.UUID          `json:"id"`
+	NotificationID      uuid.UUID          `json:"notification_id"`
+	Channel             string             `json:"channel"`
+	Provider            string             `json:"provider"`
+	Destination         string             `json:"destination"`
+	Status              string             `json:"status"`
+	RetryCount          int32              `json:"retry_count"`
+	MaxRetries          int32              `json:"max_retries"`
+	NextRetryAt         pgtype.Timestamptz `json:"next_retry_at"`
+	LockedBy            pgtype.Text        `json:"locked_by"`
+	LockedAt            pgtype.Timestamptz `json:"locked_at"`
+	CreatedAt           time.Time          `json:"created_at"`
+	UpdatedAt           time.Time          `json:"updated_at"`
+	SentAt              pgtype.Timestamptz `json:"sent_at"`
+	NotificationType    string             `json:"notification_type"`
+	Category            string             `json:"category"`
+	NotificationPayload []byte             `json:"notification_payload"`
 }
 
-func (q *Queries) GetDeliveryByNotificationAndChannel(ctx context.Context, arg GetDeliveryByNotificationAndChannelParams) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, getDeliveryByNotificationAndChannel, arg.NotificationID, arg.Channel)
-	var i NotificationDelivery
+func (q *Queries) GetDeliveryWithNotification(ctx context.Context, id uuid.UUID) (GetDeliveryWithNotificationRow, error) {
+	row := q.db.QueryRow(ctx, getDeliveryWithNotification, id)
+	var i GetDeliveryWithNotificationRow
 	err := row.Scan(
 		&i.ID,
 		&i.NotificationID,
@@ -272,45 +231,42 @@ func (q *Queries) GetDeliveryByNotificationAndChannel(ctx context.Context, arg G
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SentAt,
+		&i.NotificationType,
+		&i.Category,
+		&i.NotificationPayload,
 	)
 	return i, err
 }
 
-const listDeliveriesByNotificationID = `-- name: ListDeliveriesByNotificationID :many
-SELECT id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
+const listReadyRetryDeliveries = `-- name: ListReadyRetryDeliveries :many
+SELECT id
 FROM notification_deliveries
-WHERE notification_id = $1
-ORDER BY created_at ASC, id ASC
+WHERE status = 'retry'
+  AND next_retry_at IS NOT NULL
+  AND next_retry_at <= $1
+ORDER BY next_retry_at,
+         created_at,
+         id LIMIT $2
 `
 
-func (q *Queries) ListDeliveriesByNotificationID(ctx context.Context, notificationID uuid.UUID) ([]NotificationDelivery, error) {
-	rows, err := q.db.Query(ctx, listDeliveriesByNotificationID, notificationID)
+type ListReadyRetryDeliveriesParams struct {
+	NextRetryAt pgtype.Timestamptz `json:"next_retry_at"`
+	Limit       int32              `json:"limit"`
+}
+
+func (q *Queries) ListReadyRetryDeliveries(ctx context.Context, arg ListReadyRetryDeliveriesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listReadyRetryDeliveries, arg.NextRetryAt, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []NotificationDelivery{}
+	items := []uuid.UUID{}
 	for rows.Next() {
-		var i NotificationDelivery
-		if err := rows.Scan(
-			&i.ID,
-			&i.NotificationID,
-			&i.Channel,
-			&i.Provider,
-			&i.Destination,
-			&i.Status,
-			&i.RetryCount,
-			&i.MaxRetries,
-			&i.NextRetryAt,
-			&i.LockedBy,
-			&i.LockedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SentAt,
-		); err != nil {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -318,111 +274,98 @@ func (q *Queries) ListDeliveriesByNotificationID(ctx context.Context, notificati
 	return items, nil
 }
 
-const markDeliveryFailed = `-- name: MarkDeliveryFailed :one
+const markDeliveryFailed = `-- name: MarkDeliveryFailed :execrows
 UPDATE notification_deliveries
-SET
-    status = 'failed',
+SET status        = 'failed',
     next_retry_at = NULL,
-    locked_by = NULL,
-    locked_at = NULL
+    locked_at     = NULL,
+    locked_by     = NULL,
+    updated_at    = NOW()
 WHERE id = $1
   AND status = 'processing'
   AND locked_by = $2
-    RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
 `
 
 type MarkDeliveryFailedParams struct {
 	ID       uuid.UUID   `json:"id"`
-	WorkerID pgtype.Text `json:"worker_id"`
+	LockedBy pgtype.Text `json:"locked_by"`
 }
 
-func (q *Queries) MarkDeliveryFailed(ctx context.Context, arg MarkDeliveryFailedParams) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, markDeliveryFailed, arg.ID, arg.WorkerID)
-	var i NotificationDelivery
-	err := row.Scan(
-		&i.ID,
-		&i.NotificationID,
-		&i.Channel,
-		&i.Provider,
-		&i.Destination,
-		&i.Status,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.NextRetryAt,
-		&i.LockedBy,
-		&i.LockedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SentAt,
-	)
-	return i, err
+func (q *Queries) MarkDeliveryFailed(ctx context.Context, arg MarkDeliveryFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markDeliveryFailed, arg.ID, arg.LockedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const markDeliverySent = `-- name: MarkDeliverySent :one
+const markDeliveryRetry = `-- name: MarkDeliveryRetry :execrows
 UPDATE notification_deliveries
-SET
-    status = 'sent',
-    sent_at = now(),
+SET status        = 'retry',
+    retry_count   = retry_count + 1,
+    next_retry_at = $2,
+    locked_at     = NULL,
+    locked_by     = NULL,
+    updated_at    = NOW()
+WHERE id = $1
+  AND status = 'processing'
+  AND locked_by = $3
+  AND retry_count < max_retries
+`
+
+type MarkDeliveryRetryParams struct {
+	ID          uuid.UUID          `json:"id"`
+	NextRetryAt pgtype.Timestamptz `json:"next_retry_at"`
+	LockedBy    pgtype.Text        `json:"locked_by"`
+}
+
+func (q *Queries) MarkDeliveryRetry(ctx context.Context, arg MarkDeliveryRetryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markDeliveryRetry, arg.ID, arg.NextRetryAt, arg.LockedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markDeliverySent = `-- name: MarkDeliverySent :execrows
+UPDATE notification_deliveries
+SET status        = 'sent',
+    sent_at       = NOW(),
     next_retry_at = NULL,
-    locked_by = NULL,
-    locked_at = NULL
+    locked_at     = NULL,
+    locked_by     = NULL,
+    updated_at    = NOW()
 WHERE id = $1
   AND status = 'processing'
   AND locked_by = $2
-    RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
 `
 
 type MarkDeliverySentParams struct {
 	ID       uuid.UUID   `json:"id"`
-	WorkerID pgtype.Text `json:"worker_id"`
+	LockedBy pgtype.Text `json:"locked_by"`
 }
 
-func (q *Queries) MarkDeliverySent(ctx context.Context, arg MarkDeliverySentParams) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, markDeliverySent, arg.ID, arg.WorkerID)
-	var i NotificationDelivery
-	err := row.Scan(
-		&i.ID,
-		&i.NotificationID,
-		&i.Channel,
-		&i.Provider,
-		&i.Destination,
-		&i.Status,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.NextRetryAt,
-		&i.LockedBy,
-		&i.LockedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SentAt,
-	)
-	return i, err
+func (q *Queries) MarkDeliverySent(ctx context.Context, arg MarkDeliverySentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markDeliverySent, arg.ID, arg.LockedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const reclaimStaleDeliveries = `-- name: ReclaimStaleDeliveries :many
+const reclaimAbandonedDeliveries = `-- name: ReclaimAbandonedDeliveries :many
 UPDATE notification_deliveries
-SET
-    status = CASE
-                 WHEN retry_count < max_retries THEN 'retry'
-                 ELSE 'failed'
-        END,
-    retry_count = CASE
-                      WHEN retry_count < max_retries THEN retry_count + 1
-                      ELSE retry_count
-        END,
-    next_retry_at = CASE
-                        WHEN retry_count < max_retries THEN now()
-                        ELSE NULL
-        END,
-    locked_by = NULL,
-    locked_at = NULL
+SET status     = 'pending',
+    locked_by  = NULL,
+    locked_at  = NULL,
+    updated_at = NOW()
 WHERE status = 'processing'
-  AND locked_at < now() - $1::interval
-RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
+  AND locked_at IS NOT NULL
+  AND locked_at < $1 RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
 `
 
-func (q *Queries) ReclaimStaleDeliveries(ctx context.Context, leaseTimeout pgtype.Interval) ([]NotificationDelivery, error) {
-	rows, err := q.db.Query(ctx, reclaimStaleDeliveries, leaseTimeout)
+func (q *Queries) ReclaimAbandonedDeliveries(ctx context.Context, lockedAt pgtype.Timestamptz) ([]NotificationDelivery, error) {
+	rows, err := q.db.Query(ctx, reclaimAbandonedDeliveries, lockedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -454,47 +397,4 @@ func (q *Queries) ReclaimStaleDeliveries(ctx context.Context, leaseTimeout pgtyp
 		return nil, err
 	}
 	return items, nil
-}
-
-const scheduleDeliveryRetry = `-- name: ScheduleDeliveryRetry :one
-UPDATE notification_deliveries
-SET
-    status = 'retry',
-    retry_count = retry_count + 1,
-    next_retry_at = $1,
-    locked_by = NULL,
-    locked_at = NULL
-WHERE id = $2
-  AND status = 'processing'
-  AND locked_by = $3
-  AND retry_count < max_retries
-    RETURNING id, notification_id, channel, provider, destination, status, retry_count, max_retries, next_retry_at, locked_by, locked_at, created_at, updated_at, sent_at
-`
-
-type ScheduleDeliveryRetryParams struct {
-	NextRetryAt pgtype.Timestamptz `json:"next_retry_at"`
-	ID          uuid.UUID          `json:"id"`
-	WorkerID    pgtype.Text        `json:"worker_id"`
-}
-
-func (q *Queries) ScheduleDeliveryRetry(ctx context.Context, arg ScheduleDeliveryRetryParams) (NotificationDelivery, error) {
-	row := q.db.QueryRow(ctx, scheduleDeliveryRetry, arg.NextRetryAt, arg.ID, arg.WorkerID)
-	var i NotificationDelivery
-	err := row.Scan(
-		&i.ID,
-		&i.NotificationID,
-		&i.Channel,
-		&i.Provider,
-		&i.Destination,
-		&i.Status,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.NextRetryAt,
-		&i.LockedBy,
-		&i.LockedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SentAt,
-	)
-	return i, err
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/disillusioned-labs/notification/internal/platform/kafka"
+	"github.com/disillusioned-labs/notification/internal/platform/retry"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -21,7 +22,7 @@ type Consumer struct {
 	kafkaConsumer       *kafka.Consumer
 	dlqPublisher        *kafka.DLQPublisher
 	notificationService notification.NotificationService
-	retryPolicy         RetryPolicy
+	retryPolicy         retry.RetryPolicy
 	metrics             *ConsumerMetrics
 	log                 *slog.Logger
 }
@@ -30,7 +31,7 @@ func NewConsumer(
 	kafkaConsumer *kafka.Consumer,
 	dlqPublisher *kafka.DLQPublisher,
 	notificationService notification.NotificationService,
-	retryPolicy RetryPolicy,
+	retryPolicy retry.RetryPolicy,
 	metrics *ConsumerMetrics,
 	log *slog.Logger,
 ) *Consumer {
@@ -320,45 +321,24 @@ func (w *Consumer) processRecord(
 		)
 	}
 
-	payload, err := event.DecodePayload()
-	if err != nil {
-		return Permanent(
-			fmt.Errorf(
-				"decode notification event payload: %w",
-				err,
-			),
-		)
-	}
+	switch event.EventType {
+	case notification.EventTypeNotificationCreated:
+		return w.notificationService.CreateFromEvent(ctx, event)
 
-	switch payload := payload.(type) {
-	case notification.NotificationCreatedEvent:
-		_ = payload
+	case notification.EventTypeNotificationDeliveryRequested:
+		return w.notificationService.RequestDelivery(ctx, event)
 
-		// TODO:
-		// return w.notificationService.CreateFromEvent(ctx, payload)
-
-	case notification.NotificationDeliveryRequestedEvent:
-		_ = payload
-
-		// TODO:
-		// return w.notificationService.RequestDelivery(ctx, payload)
-
-	case notification.NotificationDeliveryRetryEvent:
-		_ = payload
-
-		// TODO:
-		// return w.notificationService.RetryDelivery(ctx, payload)
+	case notification.EventTypeNotificationDeliveryRetry:
+		return w.notificationService.RetryDelivery(ctx, event)
 
 	default:
 		return Permanent(
 			fmt.Errorf(
 				"unsupported notification event type %q",
-				event.Type,
+				event.EventType,
 			),
 		)
 	}
-
-	return nil
 }
 
 func recordEventType(record kafka.Record) string {
