@@ -34,6 +34,7 @@ type Config struct {
 	Service  ServiceConfig  `mapstructure:"service"`
 	Postgres PostgresConfig `mapstructure:"postgres"`
 	Kafka    KafkaConfig    `mapstructure:"kafka"`
+	Resend   ResendConfig   `mapstructure:"resend"`
 	OTel     OTelConfig     `mapstructure:"otel"`
 	Log      LogConfig      `mapstructure:"log"`
 }
@@ -178,6 +179,11 @@ type RetryConfig struct {
 	MaxAttempts  int           `mapstructure:"max_attempts"`
 	InitialDelay time.Duration `mapstructure:"initial_delay"`
 	MaxDelay     time.Duration `mapstructure:"max_delay"`
+}
+
+type ResendConfig struct {
+	APIKey string `mapstructure:"api_key"`
+	From   string `mapstructure:"from"`
 }
 
 // OTelConfig controls OTLP export of traces and metrics.
@@ -448,6 +454,14 @@ func (c *Config) validate() error {
 		)
 	}
 
+	if strings.TrimSpace(c.Resend.APIKey) == "" {
+		fail("resend.api_key must not be empty")
+	}
+
+	if strings.TrimSpace(c.Resend.From) == "" {
+		fail("resend.from must not be empty")
+	}
+
 	for _, e := range []struct {
 		key   string
 		value string
@@ -567,9 +581,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.producer.record_retries", int64(5))
 	v.SetDefault("kafka.producer.record_delivery_timeout", "30s")
 
+	v.SetDefault("kafka.consumer.group", "notification")
+	v.SetDefault("kafka.consumer.topic", "notification")
+	v.SetDefault("kafka.consumer.dlq_topic", "notification.dlq")
+
 	v.SetDefault("kafka.consumer.retry.max_attempts", 3)
 	v.SetDefault("kafka.consumer.retry.initial_delay", "500ms")
 	v.SetDefault("kafka.consumer.retry.max_delay", "10s")
+
+	v.SetDefault("resend.api_key", "")
+	v.SetDefault("resend.from", "")
 
 	v.SetDefault("otel.sdk_disabled", false)
 	v.SetDefault("otel.traces_exporter", OTelExporterOTLP)

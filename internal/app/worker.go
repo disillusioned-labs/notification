@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/disillusioned-labs/notification/internal/config"
-	"github.com/disillusioned-labs/notification/internal/consumer"
 	"github.com/disillusioned-labs/notification/internal/platform/kafka"
 	"github.com/disillusioned-labs/notification/internal/platform/postgres"
 	"github.com/disillusioned-labs/notification/internal/platform/retry"
@@ -20,23 +19,20 @@ import (
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
-	"github.com/disillusioned-labs/notification/internal/service/notification"
-	"github.com/disillusioned-labs/notification/internal/template"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/user_registered"
+	"github.com/disillusioned-labs/notification/internal/service/outbox"
+	"github.com/disillusioned-labs/notification/internal/worker"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go.opentelemetry.io/otel"
-
 	"golang.org/x/sync/errgroup"
 )
 
-// otelConsumerFlushTimeout bounds the trace flush at exit: if the OTLP collector is
+// otelFlushTimeout bounds the trace flush at exit: if the OTLP collector is
 // unreachable, the batch exporter blocks indefinitely and the process never
 // exits.
-const otelConsumerFlushTimeout = 5 * time.Second
+const otelWorkerFlushTimeout = 5 * time.Second
 
 // RunConsumer boots the worker process with the given configuration and blocks
 // until the process is told to stop. The caller owns loading and validating cfg.
-func RunConsumer(cfg *config.Config) error {
+func RunWorker(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -121,7 +117,7 @@ func RunConsumer(cfg *config.Config) error {
 	defer func() {
 		flushCtx, cancel := context.WithTimeout(
 			context.Background(),
-			otelConsumerFlushTimeout,
+			otelWorkerFlushTimeout,
 		)
 		defer cancel()
 
@@ -129,17 +125,6 @@ func RunConsumer(cfg *config.Config) error {
 			log.Error("otel shutdown failed", "error", err)
 		}
 	}()
-
-	// -------------------------------------------------------------------------
-	// Metrics
-	// -------------------------------------------------------------------------
-
-	meter := otel.Meter("notification/consumer")
-
-	consumerMetrics, err := consumer.NewConsumerMetrics(meter)
-	if err != nil {
-		return fmt.Errorf("create consumer metrics: %w", err)
-	}
 
 	// -------------------------------------------------------------------------
 	// PostgreSQL
@@ -207,45 +192,6 @@ func RunConsumer(cfg *config.Config) error {
 	}
 
 	// -------------------------------------------------------------------------
-	// Render
-	// -------------------------------------------------------------------------
-	payloadRegistry := template.NewPayloadRegistry()
-
-	if err := payloadRegistry.Register(
-		"user_registered",
-		func() template.Payload {
-			return &user_registered.UserRegistered{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register user_registered payload: %w",
-			err,
-		)
-	}
-
-	renderer, err := template.NewLocalRenderer(
-		payloadRegistry,
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"initialize notification renderer: %w",
-			err,
-		)
-	}
-
-	// -------------------------------------------------------------------------
-	// Service
-	// -------------------------------------------------------------------------
-	notificationService := notification.NewNotificationService(
-		cfg.Service.InstanceID,
-		repo,
-		providers,
-		renderer,
-		retryPolicy,
-		log,
-	)
-
-	// -------------------------------------------------------------------------
 	// Kafka
 	// -------------------------------------------------------------------------
 	kafkaOpts := []kafka.Option{
@@ -273,24 +219,24 @@ func RunConsumer(cfg *config.Config) error {
 	)
 
 	kafkaProducer := kafka.NewProducer(kafkaClient)
-	kafkaConsumer := kafka.NewConsumer(kafkaClient)
 
-	dlqPublisher := kafka.NewDLQPublisher(
+	// -------------------------------------------------------------------------
+	// Outbox
+	// -------------------------------------------------------------------------
+	outboxMetrics := outbox.NewMetrics()
+	outboxService := outbox.NewOutboxService(
+		repo,
 		kafkaProducer,
-		cfg.Kafka.Consumer.DLQTopic,
 		log,
+		outboxMetrics,
 	)
 
-	// -------------------------------------------------------------------------
-	// Consumer
-	// -------------------------------------------------------------------------
-	consumer := consumer.NewConsumer(
-		kafkaConsumer,
-		dlqPublisher,
-		notificationService,
-		retryPolicy,
-		consumerMetrics,
+	outboxWorker := worker.NewOutboxWorker(
+		cfg.Service.InstanceID,
+		outboxService,
 		log,
+		worker.WithInterval(time.Second),
+		worker.WithBatchSize(100),
 	)
 
 	// -------------------------------------------------------------------------
@@ -299,7 +245,7 @@ func RunConsumer(cfg *config.Config) error {
 	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return consumer.Run(runCtx)
+		return outboxWorker.Run(runCtx)
 	})
 
 	<-runCtx.Done()
@@ -321,18 +267,4 @@ func RunConsumer(cfg *config.Config) error {
 	log.Info("shutdown complete")
 
 	return nil
-}
-
-func exportTarget(enabled bool, endpoint string) string {
-	if !enabled {
-		return "disabled"
-	}
-	return endpoint
-}
-
-func shutdownCause(signalled bool) string {
-	if signalled {
-		return "signal"
-	}
-	return "listener failure"
 }

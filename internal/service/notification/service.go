@@ -13,6 +13,7 @@ import (
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service"
+	"github.com/disillusioned-labs/notification/internal/template"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -38,15 +39,17 @@ type notificationService struct {
 	instanceID string
 	repo       repository.Store
 	providers  provider.Registry
+	renderer   template.Renderer
 	retry      retry.RetryPolicy
 	log        *slog.Logger
 }
 
-func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, retry retry.RetryPolicy, log *slog.Logger) NotificationService {
+func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, renderer template.Renderer, retry retry.RetryPolicy, log *slog.Logger) NotificationService {
 	return &notificationService{
 		instanceID: instanceID,
 		repo:       repo,
 		providers:  providers,
+		renderer:   renderer,
 		retry:      retry,
 		log:        log,
 	}
@@ -542,12 +545,26 @@ func (n *notificationService) processDelivery(
 		)
 	}
 
+	renderedPayload, err := n.renderer.Render(
+		ctx,
+		notification.NotificationType,
+		delivery.Channel,
+		notification.Payload,
+	)
+	if err != nil {
+		return n.handleRenderingFailure(
+			ctx,
+			delivery,
+			err,
+		)
+	}
+
 	result, sendErr := p.Send(
 		ctx,
 		provider.SendRequest{
 			Channel:     delivery.Channel,
 			Destination: delivery.Destination,
-			Payload:     notification.Payload,
+			Payload:     renderedPayload,
 		},
 	)
 
@@ -950,6 +967,97 @@ func (n *notificationService) handleProviderResolutionFailure(
 		"retryable", false,
 		"max_retries", delivery.MaxRetries,
 		"error_type", errorType,
+	)
+
+	return nil
+}
+
+func (n *notificationService) handleRenderingFailure(
+	ctx context.Context,
+	delivery repository.NotificationDelivery,
+	renderErr error,
+) error {
+	ctx, span := tracer.Start(
+		ctx,
+		"NotificationService.handleRenderingFailure",
+	)
+	defer span.End()
+
+	if renderErr == nil {
+		renderErr = errors.New("notification rendering failed")
+	}
+
+	attemptNumber := delivery.RetryCount + 1
+
+	err := n.repo.ExecTx(ctx, func(q repository.Querier) error {
+		_, err := q.CreateDeliveryAttempt(
+			ctx,
+			repository.CreateDeliveryAttemptParams{
+				DeliveryID:        delivery.ID,
+				AttemptNumber:     attemptNumber,
+				Provider:          delivery.Provider,
+				ProviderMessageID: pgtype.Text{},
+				Status:            constant.AttemptStatusFailed,
+				HttpStatusCode:    pgtype.Int4{},
+				ErrorType:         nullableText("template_rendering"),
+				ErrorMessage:      nullableText(renderErr.Error()),
+				Response:          nil,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"create rendering failure attempt: %w",
+				err,
+			)
+		}
+
+		rows, err := q.MarkDeliveryFailed(
+			ctx,
+			repository.MarkDeliveryFailedParams{
+				ID: delivery.ID,
+				LockedBy: nullableText(
+					n.instanceID,
+				),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"mark delivery failed after rendering error: %w",
+				err,
+			)
+		}
+
+		if rows != 1 {
+			return fmt.Errorf(
+				"mark delivery failed: expected 1 row, affected %d",
+				rows,
+			)
+		}
+
+		return nil
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(
+			codes.Error,
+			"persist rendering failure",
+		)
+
+		return fmt.Errorf(
+			"persist rendering failure: %w",
+			err,
+		)
+	}
+
+	n.log.ErrorContext(
+		ctx,
+		"notification delivery failed during template rendering",
+		"delivery_id", delivery.ID,
+		"notification_id", delivery.NotificationID,
+		"provider", delivery.Provider,
+		"attempt_number", attemptNumber,
+		"error_type", "template_rendering",
+		"error", renderErr,
 	)
 
 	return nil
