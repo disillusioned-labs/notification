@@ -105,8 +105,9 @@ func (p *Provider) Send(
 	}
 
 	params := &resendSDK.SendEmailRequest{
-		From:    p.from,
-		To:      []string{to},
+		From: p.from,
+		//To:      []string{to},
+		To:      []string{"delivered@resend.dev"},
 		Subject: payload.Subject,
 		Html:    payload.HTML,
 		Text:    payload.Text,
@@ -116,13 +117,16 @@ func (p *Provider) Send(
 		params.ReplyTo = payload.ReplyTo
 	}
 
-	//if req.IdempotencyKey != "" {
-	//	params.IdempotencyKey = req.IdempotencyKey
-	//}
+	options := &resendSDK.SendEmailOptions{}
 
-	result, err := p.client.Emails.SendWithContext(
+	if req.IdempotencyKey != "" {
+		options.IdempotencyKey = req.IdempotencyKey
+	}
+
+	result, err := p.client.Emails.SendWithOptions(
 		ctx,
 		params,
+		options,
 	)
 	if err != nil {
 		return mapError(err)

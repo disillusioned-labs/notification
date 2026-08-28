@@ -32,21 +32,6 @@ func mapError(err error) (provider.SendResult, error) {
 		return result, err
 	}
 
-	// Request was invalid and should not be retried.
-	var invalidRequestErr *resendSDK.InvalidRequestError
-	if errors.As(err, &invalidRequestErr) {
-		result.ErrorType = string(provider.ErrorTypeInvalidRequest)
-		result.Retryable = false
-
-		if invalidRequestErr.StatusCode > 0 {
-			result.HTTPStatusCode = int32(
-				invalidRequestErr.StatusCode,
-			)
-		}
-
-		return result, err
-	}
-
 	// Context cancellation is NOT a provider failure.
 	//
 	// The caller should stop processing rather than schedule

@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/disillusioned-labs/notification/internal/platform/kafka"
-	"github.com/disillusioned-labs/notification/internal/platform/retry"
+	notification2 "github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
+	"github.com/disillusioned-labs/platform/kafka"
+	"github.com/disillusioned-labs/platform/retry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -322,7 +323,7 @@ func (w *Consumer) processRecord(
 	}
 
 	switch event.EventType {
-	case notification.EventTypeNotificationCreated:
+	case notification2.EventTypeCreated:
 		return w.notificationService.CreateFromEvent(ctx, event)
 
 	case notification.EventTypeNotificationDeliveryRequested:

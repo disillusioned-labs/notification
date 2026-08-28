@@ -3,6 +3,7 @@ INSERT INTO outbox_events (aggregate_type,
                            aggregate_id,
                            event_type,
                            event_version,
+                           topic,
                            payload,
                            trace_id)
 VALUES ($1,
@@ -10,12 +11,14 @@ VALUES ($1,
         $3,
         $4,
         $5,
-        $6) RETURNING
+        $6,
+        $7) RETURNING
     id,
     aggregate_type,
     aggregate_id,
     event_type,
     event_version,
+    topic,
     payload,
     created_at,
     published_at,
@@ -53,6 +56,7 @@ WHERE outbox.id = pending_events.id
     , outbox.aggregate_id
     , outbox.event_type
     , outbox.event_version
+    , outbox.topic
     , outbox.payload
     , outbox.created_at
     , outbox.published_at

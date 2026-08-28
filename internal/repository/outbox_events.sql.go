@@ -39,6 +39,7 @@ WHERE outbox.id = pending_events.id
     , outbox.aggregate_id
     , outbox.event_type
     , outbox.event_version
+    , outbox.topic
     , outbox.payload
     , outbox.created_at
     , outbox.published_at
@@ -70,6 +71,7 @@ func (q *Queries) ClaimPendingOutboxEvents(ctx context.Context, arg ClaimPending
 			&i.AggregateID,
 			&i.EventType,
 			&i.EventVersion,
+			&i.Topic,
 			&i.Payload,
 			&i.CreatedAt,
 			&i.PublishedAt,
@@ -95,6 +97,7 @@ INSERT INTO outbox_events (aggregate_type,
                            aggregate_id,
                            event_type,
                            event_version,
+                           topic,
                            payload,
                            trace_id)
 VALUES ($1,
@@ -102,12 +105,14 @@ VALUES ($1,
         $3,
         $4,
         $5,
-        $6) RETURNING
+        $6,
+        $7) RETURNING
     id,
     aggregate_type,
     aggregate_id,
     event_type,
     event_version,
+    topic,
     payload,
     created_at,
     published_at,
@@ -124,6 +129,7 @@ type CreateOutboxEventParams struct {
 	AggregateID   uuid.UUID   `json:"aggregate_id"`
 	EventType     string      `json:"event_type"`
 	EventVersion  int32       `json:"event_version"`
+	Topic         string      `json:"topic"`
 	Payload       []byte      `json:"payload"`
 	TraceID       pgtype.Text `json:"trace_id"`
 }
@@ -134,6 +140,7 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 		arg.AggregateID,
 		arg.EventType,
 		arg.EventVersion,
+		arg.Topic,
 		arg.Payload,
 		arg.TraceID,
 	)
@@ -144,6 +151,7 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 		&i.AggregateID,
 		&i.EventType,
 		&i.EventVersion,
+		&i.Topic,
 		&i.Payload,
 		&i.CreatedAt,
 		&i.PublishedAt,

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/disillusioned-labs/notification/internal/platform/kafka"
 	"github.com/disillusioned-labs/notification/internal/repository"
+	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,14 +28,14 @@ type OutboxService interface {
 
 type outboxService struct {
 	repo     repository.Store
-	producer *kafka.Producer
+	producer kafka.Producer
 	log      *slog.Logger
 	metrics  Metrics
 }
 
 func NewOutboxService(
 	repo repository.Store,
-	producer *kafka.Producer,
+	producer kafka.Producer,
 	log *slog.Logger,
 	metrics Metrics,
 ) OutboxService {
@@ -168,7 +168,7 @@ func (s *outboxService) publishEvent(
 	err := s.producer.Publish(
 		ctx,
 		kafka.Record{
-			Topic:   event.EventType,
+			Topic:   event.Topic,
 			Key:     []byte(event.AggregateID.String()),
 			Value:   event.Payload,
 			Headers: headers,

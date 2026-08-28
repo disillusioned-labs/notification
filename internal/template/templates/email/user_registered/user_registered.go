@@ -6,12 +6,12 @@ import (
 )
 
 type UserRegistered struct {
-	FirstName string `json:"first_name"`
+	Name string `json:"name"`
 }
 
 func (p *UserRegistered) Validate() error {
-	if strings.TrimSpace(p.FirstName) == "" {
-		return errors.New("first_name is required")
+	if strings.TrimSpace(p.Name) == "" {
+		return errors.New("name is required")
 	}
 
 	return nil

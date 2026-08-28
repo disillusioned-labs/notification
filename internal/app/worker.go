@@ -12,17 +12,18 @@ import (
 	"time"
 
 	"github.com/disillusioned-labs/notification/internal/config"
-	"github.com/disillusioned-labs/notification/internal/platform/kafka"
-	"github.com/disillusioned-labs/notification/internal/platform/postgres"
-	"github.com/disillusioned-labs/notification/internal/platform/retry"
-	"github.com/disillusioned-labs/notification/internal/platform/telemetry"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/outbox"
 	"github.com/disillusioned-labs/notification/internal/worker"
-	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/disillusioned-labs/platform/kafka"
+	"github.com/disillusioned-labs/platform/postgres"
+	"github.com/disillusioned-labs/platform/retry"
+	"github.com/disillusioned-labs/platform/telemetry"
 	"golang.org/x/sync/errgroup"
+
+	migrations "github.com/disillusioned-labs/notification/db/migrations"
 )
 
 // otelFlushTimeout bounds the trace flush at exit: if the OTLP collector is
@@ -30,7 +31,7 @@ import (
 // exits.
 const otelWorkerFlushTimeout = 5 * time.Second
 
-// RunConsumer boots the worker process with the given configuration and blocks
+// RunWorker boots the worker process with the given configuration and blocks
 // until the process is told to stop. The caller owns loading and validating cfg.
 func RunWorker(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(
@@ -145,7 +146,7 @@ func RunWorker(cfg *config.Config) error {
 	log.Info("connected to postgres", "postgres", cfg.Postgres)
 
 	if cfg.Postgres.Migrate {
-		if err := postgres.Migrate(ctx, pool, log); err != nil {
+		if err := postgres.Migrate(ctx, pool, migrations.FS, log); err != nil {
 			return fmt.Errorf("run migrations: %w", err)
 		}
 	}
@@ -194,15 +195,27 @@ func RunWorker(cfg *config.Config) error {
 	// -------------------------------------------------------------------------
 	// Kafka
 	// -------------------------------------------------------------------------
-	kafkaOpts := []kafka.Option{
-		kgo.ConsumerGroup(cfg.Kafka.Consumer.Group),
-		kgo.ConsumeTopics(cfg.Kafka.Consumer.Topic),
-	}
-
 	kafkaClient, err := kafka.New(
 		ctx,
-		cfg.Kafka,
-		kafkaOpts...,
+		kafka.KafkaConfig{
+			Brokers:     cfg.Kafka.Brokers,
+			ClientID:    cfg.Kafka.ClientID,
+			PingTimeout: cfg.Kafka.PingTimeout,
+			Producer: kafka.ProducerConfig{
+				RecordRetries:         cfg.Kafka.Producer.RecordRetries,
+				RecordDeliveryTimeout: cfg.Kafka.Producer.RecordDeliveryTimeout,
+			},
+			Consumer: kafka.ConsumerConfig{
+				Group:    fmt.Sprintf("%s-%s", cfg.Kafka.Consumer.Group, "worker"),
+				Topics:   cfg.Kafka.Consumer.Topics,
+				DLQTopic: cfg.Kafka.Consumer.DLQTopic,
+				Retry: kafka.RetryConfig{
+					MaxAttempts:  cfg.Kafka.Consumer.Retry.MaxAttempts,
+					InitialDelay: cfg.Kafka.Consumer.Retry.InitialDelay,
+					MaxDelay:     cfg.Kafka.Consumer.Retry.MaxDelay,
+				},
+			},
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("connect kafka: %w", err)
@@ -214,7 +227,7 @@ func RunWorker(cfg *config.Config) error {
 		"brokers", cfg.Kafka.Brokers,
 		"client_id", cfg.Kafka.ClientID,
 		"consumer_group", cfg.Kafka.Consumer.Group,
-		"consumer_topic", cfg.Kafka.Consumer.Topic,
+		"consumer_topic", cfg.Kafka.Consumer.Topics,
 		"dlq_topic", cfg.Kafka.Consumer.DLQTopic,
 	)
 

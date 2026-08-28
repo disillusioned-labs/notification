@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/disillusioned-labs/notification/internal/constant"
-	"github.com/disillusioned-labs/notification/internal/platform/retry"
+	"github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service"
 	"github.com/disillusioned-labs/notification/internal/template"
+	"github.com/disillusioned-labs/platform/retry"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -73,7 +74,7 @@ func (n *notificationService) CreateFromEvent(
 		)
 	}
 
-	created, ok := payload.(NotificationCreatedEvent)
+	created, ok := payload.(notification.CreatedEvent)
 	if !ok {
 		err := fmt.Errorf(
 			"unexpected payload type %T",
@@ -202,6 +203,7 @@ func (n *notificationService) CreateFromEvent(
 				deliveryAggregateType,
 				delivery.ID,
 				EventTypeNotificationDeliveryRequested,
+				event.Topic,
 				NotificationDeliveryRequestedEvent{
 					DeliveryID: delivery.ID.String(),
 				},
@@ -562,9 +564,10 @@ func (n *notificationService) processDelivery(
 	result, sendErr := p.Send(
 		ctx,
 		provider.SendRequest{
-			Channel:     delivery.Channel,
-			Destination: delivery.Destination,
-			Payload:     renderedPayload,
+			Channel:        delivery.Channel,
+			Destination:    delivery.Destination,
+			Payload:        renderedPayload,
+			IdempotencyKey: deliveryID.String(),
 		},
 	)
 
@@ -1098,6 +1101,7 @@ func createOutboxEvent(
 	aggregateType string,
 	aggregateID uuid.UUID,
 	eventType string,
+	topic string,
 	event any,
 ) error {
 	payload, err := json.Marshal(event)
@@ -1125,6 +1129,7 @@ func createOutboxEvent(
 			AggregateID:   aggregateID,
 			EventType:     eventType,
 			EventVersion:  notificationEventVersion,
+			Topic:         topic,
 			Payload:       payload,
 			TraceID:       traceID,
 		},

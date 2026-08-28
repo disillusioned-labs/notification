@@ -6,11 +6,11 @@ import (
 )
 
 type UserRegisteredPayload struct {
-	FirstName string `json:"first_name"`
+	Name string `json:"first_name"`
 }
 
 func (p *UserRegisteredPayload) Validate() error {
-	if strings.TrimSpace(p.FirstName) == "" {
+	if strings.TrimSpace(p.Name) == "" {
 		return errors.New("first_name is required")
 	}
 

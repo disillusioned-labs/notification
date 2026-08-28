@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/disillusioned-labs/notification/internal/platform/kafka"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
+	"github.com/disillusioned-labs/platform/kafka"
 )
 
 const (
@@ -26,17 +26,17 @@ func decodeNotificationEvent(
 		)
 	}
 
-	eventID, err := requiredHeader(record.Headers, headerEventID)
+	eventID, err := kafka.RequiredHeader(record.Headers, headerEventID)
 	if err != nil {
 		return notification.NotificationEvent{}, err
 	}
 
-	eventType, err := requiredHeader(record.Headers, headerEventType)
+	eventType, err := kafka.RequiredHeader(record.Headers, headerEventType)
 	if err != nil {
 		return notification.NotificationEvent{}, err
 	}
 
-	versionValue, err := requiredHeader(record.Headers, headerEventVersion)
+	versionValue, err := kafka.RequiredHeader(record.Headers, headerEventVersion)
 	if err != nil {
 		return notification.NotificationEvent{}, err
 	}
@@ -51,7 +51,7 @@ func decodeNotificationEvent(
 		)
 	}
 
-	sourceService, err := requiredHeader(
+	sourceService, err := kafka.RequiredHeader(
 		record.Headers,
 		headerSourceService,
 	)
@@ -59,7 +59,7 @@ func decodeNotificationEvent(
 		return notification.NotificationEvent{}, err
 	}
 
-	aggregateType, err := requiredHeader(
+	aggregateType, err := kafka.RequiredHeader(
 		record.Headers,
 		headerAggregateType,
 	)
@@ -67,7 +67,7 @@ func decodeNotificationEvent(
 		return notification.NotificationEvent{}, err
 	}
 
-	aggregateID, err := requiredHeader(
+	aggregateID, err := kafka.RequiredHeader(
 		record.Headers,
 		headerAggregateID,
 	)
@@ -82,6 +82,7 @@ func decodeNotificationEvent(
 		SourceService: sourceService,
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
+		Topic:         record.Topic,
 		Payload:       record.Value,
 	}
 
@@ -93,19 +94,4 @@ func decodeNotificationEvent(
 	}
 
 	return event, nil
-}
-
-func requiredHeader(
-	headers []kafka.RecordHeader,
-	key string,
-) (string, error) {
-	value, ok := kafka.HeaderString(headers, key)
-	if !ok || value == "" {
-		return "", fmt.Errorf(
-			"missing required header %q",
-			key,
-		)
-	}
-
-	return value, nil
 }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>You're In — Disillusioned Labs</title>
+  <title>Invitation Accepted — {{.OrganizationName}}</title>
 </head>
 
 <body style="
@@ -20,10 +20,9 @@
   max-height:0;
   overflow:hidden;
   opacity:0;
-">
-  Your Disillusioned Labs account is ready.
+ ">
+  {{.InviteeName}} accepted your invitation to {{.OrganizationName}}.
 </div>
-
 
 <!-- PAGE -->
 <table width="100%" cellpadding="0" cellspacing="0" border="0"
@@ -31,7 +30,6 @@
 
 <tr>
 <td align="center">
-
 
 <!-- MAIN WINDOW -->
 <table width="100%" cellpadding="0" cellspacing="0" border="0"
@@ -42,7 +40,6 @@
     box-shadow:4px 4px 0 #888888;
   ">
 
-
 <!-- TITLE BAR -->
 <tr>
 <td style="
@@ -50,10 +47,8 @@
   color:#ffffff;
   padding:6px 9px;
 ">
-
   <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
-
       <td style="
         font-family:Arial, Helvetica, sans-serif;
         font-size:11px;
@@ -61,20 +56,16 @@
       ">
         DISILLUSIONED LABS
       </td>
-
       <td align="right" style="
         font-size:11px;
         color:#ffffff;
       ">
         ×
       </td>
-
     </tr>
   </table>
-
 </td>
 </tr>
-
 
 <!-- STATUS BAR -->
 <tr>
@@ -86,20 +77,13 @@
   font-size:10px;
   color:#444444;
 ">
-
-  ACCOUNT STATUS:
-  <span style="color:#176d17;">
-    ● ACTIVE
-  </span>
-
+  INVITATION STATUS: <span style="color:#176d17;">● ACCEPTED</span>
 </td>
 </tr>
-
 
 <!-- CONTENT -->
 <tr>
 <td style="padding:42px 38px 45px;">
-
 
 <!-- SMALL LABEL -->
 <div style="
@@ -107,10 +91,9 @@
   font-size:10px;
   color:#777777;
   margin-bottom:18px;
-">
-  // ACCESS CONFIRMED
+ ">
+  // INVITATION UPDATE
 </div>
-
 
 <!-- HEADLINE -->
 <div style="
@@ -121,27 +104,9 @@
   letter-spacing:-2px;
   color:#111111;
   margin-bottom:30px;
-">
-  YOU'RE IN.
+ ">
+  THEY'RE IN.
 </div>
-
-
-<!-- NAME -->
-<div style="
-  font-size:18px;
-  line-height:1.4;
-  margin-bottom:22px;
-">
-  Welcome,<br>
-
-  <span style="
-    font-size:27px;
-    font-weight:bold;
-  ">
-    {{.Name}}.
-  </span>
-</div>
-
 
 <!-- COPY -->
 <div style="
@@ -150,12 +115,12 @@
   line-height:1.7;
   color:#333333;
   margin-bottom:30px;
-">
-  Thanks for joining Disillusioned Labs.
-  Your account is ready, and we're glad to
-  have you here.
-</div>
+ ">
+  Hello {{.InviterName}},<br><br>
 
+  <strong>{{.InviteeName}}</strong> accepted your invitation
+  to join <strong>{{.OrganizationName}}</strong>.
+</div>
 
 <!-- DIVIDER -->
 <table width="100%" cellpadding="0" cellspacing="0">
@@ -165,40 +130,14 @@
   background:#aaaaaa;
   font-size:1px;
   line-height:1px;
-">
+ ">
   &nbsp;
 </td>
 </tr>
 </table>
 
-
-<!-- CTA -->
-<div style="padding-top:28px;">
-
-  <a href="{{.LoginURL}}"
-    style="
-      display:inline-block;
-      padding:10px 18px;
-      background:#dddddd;
-      color:#111111;
-      text-decoration:none;
-      font-size:13px;
-      font-weight:bold;
-
-      border-top:2px solid #ffffff;
-      border-left:2px solid #ffffff;
-      border-right:2px solid #666666;
-      border-bottom:2px solid #666666;
-    ">
-    Get started →
-  </a>
-
-</div>
-
-
 </td>
 </tr>
-
 
 <!-- FOOTER / STATUS -->
 <tr>
@@ -207,10 +146,8 @@
   background:#dedede;
   border-top:1px solid #999999;
 ">
-
   <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
-
       <td style="
         font-family:'Courier New', monospace;
         font-size:9px;
@@ -218,29 +155,23 @@
       ">
         DISILLUSIONED LABS // 001
       </td>
-
       <td align="right" style="
         font-family:'Courier New', monospace;
         font-size:9px;
         color:#666666;
       ">
-        READY
+        ACCEPTED
       </td>
-
     </tr>
   </table>
-
 </td>
 </tr>
 
-
 </table>
-
 
 <!-- OUTSIDE FOOTER -->
 <table width="100%" cellpadding="0" cellspacing="0"
   style="max-width:620px;">
-
 <tr>
 <td align="center" style="
   padding:18px 10px;
@@ -248,19 +179,12 @@
   font-size:9px;
   line-height:1.6;
   color:#666666;
-">
-
+ ">
   DISILLUSIONED LABS<br>
-
-  <span style="color:#888888;">
-    Best viewed with curiosity.
-  </span>
-
+  <span style="color:#888888;">We didn't say it was a good idea.</span>
 </td>
 </tr>
-
 </table>
-
 
 </td>
 </tr>
