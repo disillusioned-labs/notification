@@ -100,7 +100,7 @@ jobs:
             --build-arg VERSION="${{ github.ref_name }}" \
             --build-arg COMMIT="${{ github.sha }}" \
             --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -t identity:ci .
+            -t notification:ci .
       # Proves the entrypoint is runnable and that config validation passes on
       # the built-in defaults - a bad COPY or a stray dependency on
       # the build stage would otherwise only surface on first deploy.
@@ -110,7 +110,9 @@ jobs:
             -e POSTGRES_DSN="postgres://app:app@127.0.0.1:59999/app?sslmode=disable" \
             -e OTEL_SDK_DISABLED=true \
             -e REDIS_MODE=disabled \
-            identity:ci 2>&1 || true)
+            -e RESEND_API_KEY=smoke-test \
+            -e RESEND_FROM=smoke-test@localhost \
+            notification:ci 2>&1 || true)
           echo "$output"
           # Reaching the Postgres dial means config loaded and the app booted.
           echo "$output" | grep -q "connect postgres" \

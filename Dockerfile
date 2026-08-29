@@ -21,21 +21,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -X github.com/disillusioned-labs/notification/internal/app.version=${VERSION} \
         -X github.com/disillusioned-labs/notification/internal/app.commit=${COMMIT} \
         -X github.com/disillusioned-labs/notification/internal/app.buildDate=${BUILD_DATE}" \
-      -o /out/api ./cmd/api && \
+      -o /out/consumer ./cmd/consumer && \
     CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags="-s -w \
         -X github.com/disillusioned-labs/notification/internal/app.version=${VERSION} \
         -X github.com/disillusioned-labs/notification/internal/app.commit=${COMMIT} \
         -X github.com/disillusioned-labs/notification/internal/app.buildDate=${BUILD_DATE}" \
-      -o /out/worker ./cmd/worker && \
-    CGO_ENABLED=0 GOOS=linux go build \
-      -trimpath \
-      -ldflags="-s -w \
-        -X github.com/disillusioned-labs/notification/internal/app.version=${VERSION} \
-        -X github.com/disillusioned-labs/notification/internal/app.commit=${COMMIT} \
-        -X github.com/disillusioned-labs/notification/internal/app.buildDate=${BUILD_DATE}" \
-      -o /out/generate-signing-key ./cmd/generate-signing-key
+      -o /out/worker ./cmd/worker
 
 
 # ---------------------------------------------------------------------------
@@ -46,22 +39,7 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
 WORKDIR /app
 
-COPY --from=build /out/api ./api
+COPY --from=build /out/consumer ./consumer
 COPY --from=build /out/worker ./worker
 
-EXPOSE 8080
-
-ENTRYPOINT ["/app/api"]
-
-
-# ---------------------------------------------------------------------------
-# Signing-key provisioning image
-# ---------------------------------------------------------------------------
-
-FROM gcr.io/distroless/static-debian12:nonroot AS signing-key
-
-WORKDIR /app
-
-COPY --from=build /out/generate-signing-key ./generate-signing-key
-
-ENTRYPOINT ["/app/generate-signing-key"]
+ENTRYPOINT ["/app/consumer"]

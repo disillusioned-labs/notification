@@ -1,6 +1,6 @@
 services:
-  api:
-    container_name: identity-api
+  consumer:
+    container_name: notification-consumer
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,8 +12,6 @@ services:
     env_file:
       - .env
       - .env.compose
-    ports:
-      - "8080:8080"
     networks:
       - data
       - messaging
@@ -21,7 +19,7 @@ services:
     restart: unless-stopped
 
   worker:
-    container_name: identity-worker
+    container_name: notification-worker
     build:
       context: .
       dockerfile: Dockerfile
