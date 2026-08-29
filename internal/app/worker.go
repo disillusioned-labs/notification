@@ -15,6 +15,7 @@ import (
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
+	"github.com/disillusioned-labs/notification/internal/service/notification"
 	"github.com/disillusioned-labs/notification/internal/service/outbox"
 	"github.com/disillusioned-labs/notification/internal/worker"
 	"github.com/disillusioned-labs/platform/kafka"
@@ -234,6 +235,33 @@ func RunWorker(cfg *config.Config) error {
 	kafkaProducer := kafka.NewProducer(kafkaClient)
 
 	// -------------------------------------------------------------------------
+	// Render
+	// -------------------------------------------------------------------------
+	renderer, err := buildRenderer()
+	if err != nil {
+		return err
+	}
+
+	// -------------------------------------------------------------------------
+	// Notification delivery retry
+	// -------------------------------------------------------------------------
+	notificationService := notification.NewNotificationService(
+		cfg.Service.InstanceID,
+		repo,
+		providers,
+		renderer,
+		retryPolicy,
+		log,
+	)
+
+	retryWorker := worker.NewRetryWorker(
+		notificationService,
+		log,
+		worker.WithRetryInterval(30*time.Second),
+		worker.WithRetryBatchSize(100),
+	)
+
+	// -------------------------------------------------------------------------
 	// Outbox
 	// -------------------------------------------------------------------------
 	outboxMetrics := outbox.NewMetrics()
@@ -259,6 +287,10 @@ func RunWorker(cfg *config.Config) error {
 
 	g.Go(func() error {
 		return outboxWorker.Run(runCtx)
+	})
+
+	g.Go(func() error {
+		return retryWorker.Run(runCtx)
 	})
 
 	<-runCtx.Done()

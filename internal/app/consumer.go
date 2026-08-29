@@ -17,14 +17,6 @@ import (
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
-	"github.com/disillusioned-labs/notification/internal/template"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_deleted"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation_accepted"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation_revoked"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_member_removed"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_member_role_updated"
-	"github.com/disillusioned-labs/notification/internal/template/templates/email/user_registered"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
@@ -216,100 +208,9 @@ func RunConsumer(cfg *config.Config) error {
 	// -------------------------------------------------------------------------
 	// Render
 	// -------------------------------------------------------------------------
-	payloadRegistry := template.NewPayloadRegistry()
-
-	if err := payloadRegistry.Register(
-		"user_registered",
-		func() template.Payload {
-			return &user_registered.UserRegistered{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register user_registered payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_invitation",
-		func() template.Payload {
-			return &organization_invitation.OrganizationInvitation{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_invitation payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_invitation_accepted",
-		func() template.Payload {
-			return &organization_invitation_accepted.OrganizationInvitationAccepted{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_invitation_accepted payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_invitation_revoked",
-		func() template.Payload {
-			return &organization_invitation_revoked.OrganizationInvitationRevoked{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_invitation_revoked payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_member_removed",
-		func() template.Payload {
-			return &organization_member_removed.OrganizationMemberRemoved{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_member_removed payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_member_role_updated",
-		func() template.Payload {
-			return &organization_member_role_updated.OrganizationMemberRoleUpdated{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_member_role_updated payload: %w",
-			err,
-		)
-	}
-
-	if err := payloadRegistry.Register(
-		"organization_deleted",
-		func() template.Payload {
-			return &organization_deleted.OrganizationDeleted{}
-		},
-	); err != nil {
-		return fmt.Errorf(
-			"register organization_deleted payload: %w",
-			err,
-		)
-	}
-
-	renderer, err := template.NewLocalRenderer(
-		payloadRegistry,
-	)
+	renderer, err := buildRenderer()
 	if err != nil {
-		return fmt.Errorf(
-			"initialize notification renderer: %w",
-			err,
-		)
+		return err
 	}
 
 	// -------------------------------------------------------------------------

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -34,6 +35,7 @@ type NotificationService interface {
 	CreateFromEvent(ctx context.Context, event NotificationEvent) error
 	RequestDelivery(ctx context.Context, event NotificationEvent) error
 	RetryDelivery(ctx context.Context, event NotificationEvent) error
+	ProcessReadyRetries(ctx context.Context, limit int) error
 }
 
 type notificationService struct {
@@ -477,6 +479,56 @@ func (n *notificationService) RetryDelivery(
 		ctx,
 		deliveryID,
 	)
+}
+
+func (n *notificationService) ProcessReadyRetries(
+	ctx context.Context,
+	limit int,
+) error {
+	ctx, span := tracer.Start(
+		ctx,
+		"NotificationService.ProcessReadyRetries",
+	)
+	defer span.End()
+
+	ids, err := n.repo.ListReadyRetryDeliveries(
+		ctx,
+		repository.ListReadyRetryDeliveriesParams{
+			NextRetryAt: pgtype.Timestamptz{
+				Time:  time.Now(),
+				Valid: true,
+			},
+			Limit: int32(limit),
+		},
+	)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(
+			codes.Error,
+			"list ready retry deliveries",
+		)
+
+		return fmt.Errorf(
+			"list ready retry deliveries: %w",
+			err,
+		)
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	span.SetAttributes(
+		attribute.Int("notification.retry_ready", len(ids)),
+	)
+
+	for _, id := range ids {
+		if err := n.processDelivery(ctx, id); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (n *notificationService) processDelivery(
