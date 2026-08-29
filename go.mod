@@ -3,7 +3,7 @@ module github.com/disillusioned-labs/notification
 go 1.25.12
 
 require (
-	github.com/disillusioned-labs/platform v0.1.2
+	github.com/disillusioned-labs/platform v0.1.3
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/resend/resend-go/v3 v3.17.0
