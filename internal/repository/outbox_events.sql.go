@@ -180,6 +180,19 @@ func (q *Queries) DeletePublishedOutboxEvents(ctx context.Context) (int64, error
 	return result.RowsAffected(), nil
 }
 
+const getOldestPendingOutboxAgeSeconds = `-- name: GetOldestPendingOutboxAgeSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)::BIGINT AS age_seconds
+FROM outbox_events
+WHERE published_at IS NULL
+`
+
+func (q *Queries) GetOldestPendingOutboxAgeSeconds(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getOldestPendingOutboxAgeSeconds)
+	var age_seconds int64
+	err := row.Scan(&age_seconds)
+	return age_seconds, err
+}
+
 const markOutboxEventFailed = `-- name: MarkOutboxEventFailed :exec
 UPDATE outbox_events
 SET attempt_count   = attempt_count + 1,

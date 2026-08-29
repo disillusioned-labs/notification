@@ -24,6 +24,7 @@ type Querier interface {
 	GetDeliveryWithNotification(ctx context.Context, id uuid.UUID) (GetDeliveryWithNotificationRow, error)
 	GetLatestDeliveryAttempt(ctx context.Context, deliveryID uuid.UUID) (NotificationDeliveryAttempt, error)
 	GetNotificationByID(ctx context.Context, id uuid.UUID) (GetNotificationByIDRow, error)
+	GetOldestPendingOutboxAgeSeconds(ctx context.Context) (int64, error)
 	GetProviderByName(ctx context.Context, name string) (Provider, error)
 	ListActiveProvidersByType(ctx context.Context, type_ string) ([]Provider, error)
 	ListReadyRetryDeliveries(ctx context.Context, arg ListReadyRetryDeliveriesParams) ([]uuid.UUID, error)

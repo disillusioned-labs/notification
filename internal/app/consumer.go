@@ -216,12 +216,15 @@ func RunConsumer(cfg *config.Config) error {
 	// -------------------------------------------------------------------------
 	// Service
 	// -------------------------------------------------------------------------
+	notificationMetrics := notification.NewMetrics()
+
 	notificationService := notification.NewNotificationService(
 		cfg.Service.InstanceID,
 		repo,
 		providers,
 		renderer,
 		retryPolicy,
+		notificationMetrics,
 		log,
 	)
 

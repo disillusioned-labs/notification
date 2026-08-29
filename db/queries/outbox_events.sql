@@ -102,3 +102,8 @@ DELETE
 FROM outbox_events
 WHERE published_at IS NOT NULL
   AND published_at < NOW() - INTERVAL '7 days';
+
+-- name: GetOldestPendingOutboxAgeSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)::BIGINT AS age_seconds
+FROM outbox_events
+WHERE published_at IS NULL;

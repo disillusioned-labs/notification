@@ -9,6 +9,7 @@ var meter = otel.Meter("service/outbox")
 
 type Metrics struct {
 	lastPollTimestamp metric.Int64Gauge
+	oldestPendingAge  metric.Float64Gauge
 
 	eventsClaimed             metric.Int64Counter
 	eventsPublished           metric.Int64Counter
@@ -23,6 +24,11 @@ func NewMetrics() Metrics {
 	lastPollTimestamp, _ := meter.Int64Gauge(
 		"outbox.worker.last_poll_timestamp_seconds",
 		metric.WithDescription("Unix timestamp of the last successful outbox poll"),
+	)
+
+	oldestPendingAge, _ := meter.Float64Gauge(
+		"outbox.oldest_pending_age_seconds",
+		metric.WithDescription("Age in seconds of the oldest unpublished outbox event; 0 when the outbox is empty"),
 	)
 
 	eventsClaimed, _ := meter.Int64Counter(
@@ -58,6 +64,7 @@ func NewMetrics() Metrics {
 
 	return Metrics{
 		lastPollTimestamp:         lastPollTimestamp,
+		oldestPendingAge:          oldestPendingAge,
 		eventsClaimed:             eventsClaimed,
 		eventsPublished:           eventsPublished,
 		eventsPublishFailed:       eventsPublishFailed,

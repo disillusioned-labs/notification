@@ -245,12 +245,15 @@ func RunWorker(cfg *config.Config) error {
 	// -------------------------------------------------------------------------
 	// Notification delivery retry
 	// -------------------------------------------------------------------------
+	notificationMetrics := notification.NewMetrics()
+
 	notificationService := notification.NewNotificationService(
 		cfg.Service.InstanceID,
 		repo,
 		providers,
 		renderer,
 		retryPolicy,
+		notificationMetrics,
 		log,
 	)
 

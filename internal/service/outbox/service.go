@@ -78,6 +78,7 @@ func (s *outboxService) PublishPending(
 	}
 
 	s.metrics.lastPollTimestamp.Record(ctx, time.Now().Unix())
+	s.recordOldestPendingAge(ctx)
 	s.metrics.eventsClaimed.Add(ctx, int64(len(events)))
 
 	if len(events) == 0 {
@@ -261,4 +262,23 @@ func (s *outboxService) publishEvent(
 	)
 
 	return nil
+}
+
+// recordOldestPendingAge refreshes the outbox staleness gauge on every poll
+// cycle, including empty ones, so a wedged worker is visible as an ever-rising
+// age and a healthy one as 0. A failed read keeps the previous value rather
+// than faking freshness.
+func (s *outboxService) recordOldestPendingAge(ctx context.Context) {
+	ageSeconds, err := s.repo.GetOldestPendingOutboxAgeSeconds(ctx)
+	if err != nil {
+		s.log.WarnContext(
+			ctx,
+			"query oldest pending outbox age failed",
+			"error", err,
+		)
+
+		return
+	}
+
+	s.metrics.oldestPendingAge.Record(ctx, float64(ageSeconds))
 }

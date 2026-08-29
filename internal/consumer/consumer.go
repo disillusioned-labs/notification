@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	notification2 "github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
+	notification2 "github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/retry"
 	"go.opentelemetry.io/otel"
@@ -80,7 +80,7 @@ func (w *Consumer) Run(ctx context.Context) error {
 		}
 
 		for _, record := range records {
-			if err := w.processWithRetry(ctx, record); err != nil {
+			if err := w.processWithRetry(recordContext(ctx, record), record); err != nil {
 				return fmt.Errorf(
 					"process kafka record topic=%s partition=%d offset=%d: %w",
 					record.Topic,
@@ -352,4 +352,13 @@ func recordEventType(record kafka.Record) string {
 	}
 
 	return value
+}
+
+// recordContext continues the trace the producer injected into the record
+// headers; records without one fall back to the poll loop's context.
+func recordContext(ctx context.Context, record kafka.Record) context.Context {
+	if record.Context != nil {
+		return record.Context
+	}
+	return ctx
 }

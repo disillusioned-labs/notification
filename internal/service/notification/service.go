@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/disillusioned-labs/notification/internal/constant"
-	"github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service"
 	"github.com/disillusioned-labs/notification/internal/template"
+	"github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/platform/retry"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -44,16 +44,18 @@ type notificationService struct {
 	providers  provider.Registry
 	renderer   template.Renderer
 	retry      retry.RetryPolicy
+	metrics    Metrics
 	log        *slog.Logger
 }
 
-func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, renderer template.Renderer, retry retry.RetryPolicy, log *slog.Logger) NotificationService {
+func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, renderer template.Renderer, retry retry.RetryPolicy, metrics Metrics, log *slog.Logger) NotificationService {
 	return &notificationService{
 		instanceID: instanceID,
 		repo:       repo,
 		providers:  providers,
 		renderer:   renderer,
 		retry:      retry,
+		metrics:    metrics,
 		log:        log,
 	}
 }
@@ -515,12 +517,14 @@ func (n *notificationService) ProcessReadyRetries(
 	}
 
 	if len(ids) == 0 {
+		n.metrics.retryReady.Record(ctx, 0)
 		return nil
 	}
 
 	span.SetAttributes(
 		attribute.Int("notification.retry_ready", len(ids)),
 	)
+	n.metrics.retryReady.Record(ctx, float64(len(ids)))
 
 	for _, id := range ids {
 		if err := n.processDelivery(ctx, id); err != nil {
@@ -707,6 +711,8 @@ func (n *notificationService) handleProviderSuccess(
 		"provider_message_id", result.MessageID,
 	)
 
+	n.metrics.deliverySent.Add(ctx, 1, providerAttr(delivery.Provider))
+
 	return nil
 }
 func (n *notificationService) handleProviderFailure(
@@ -842,6 +848,8 @@ func (n *notificationService) handleProviderFailure(
 	}
 
 	if retryable {
+		n.metrics.deliveryRetryScheduled.Add(ctx, 1, providerAttr(delivery.Provider))
+
 		n.log.WarnContext(
 			ctx,
 			"notification delivery scheduled for retry",
@@ -857,6 +865,8 @@ func (n *notificationService) handleProviderFailure(
 
 		return nil
 	}
+
+	n.metrics.deliveryFailed.Add(ctx, 1, providerAttr(delivery.Provider))
 
 	n.log.ErrorContext(
 		ctx,
@@ -998,6 +1008,8 @@ func (n *notificationService) handleProviderResolutionFailure(
 	}
 
 	if retryable {
+		n.metrics.deliveryRetryScheduled.Add(ctx, 1, providerAttr(delivery.Provider))
+
 		n.log.WarnContext(
 			ctx,
 			"notification provider temporarily unavailable; delivery scheduled for retry",
@@ -1012,6 +1024,8 @@ func (n *notificationService) handleProviderResolutionFailure(
 
 		return nil
 	}
+
+	n.metrics.deliveryFailed.Add(ctx, 1, providerAttr(delivery.Provider))
 
 	n.log.ErrorContext(
 		ctx,
@@ -1103,6 +1117,8 @@ func (n *notificationService) handleRenderingFailure(
 			err,
 		)
 	}
+
+	n.metrics.deliveryFailed.Add(ctx, 1, providerAttr(delivery.Provider))
 
 	n.log.ErrorContext(
 		ctx,
