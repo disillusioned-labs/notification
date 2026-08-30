@@ -964,29 +964,6 @@ func (n *notificationService) handleRenderingFailure(
 	return nil
 }
 
-func (n *notificationService) markDeliveryFailed(
-	ctx context.Context,
-	q repository.Querier,
-	deliveryID uuid.UUID,
-) error {
-	rows, err := q.MarkDeliveryFailed(
-		ctx,
-		repository.MarkDeliveryFailedParams{
-			ID:       deliveryID,
-			LockedBy: pgutil.TextFromString(n.instanceID),
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("mark delivery failed: %w", err)
-	}
-
-	if rows != 1 {
-		return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
-	}
-
-	return nil
-}
-
 func providerErrorType(err error) string {
 	switch {
 	case errors.Is(err, provider.ErrProviderNotFound):
