@@ -93,9 +93,7 @@ func (s *outboxService) PublishPending(
 		attribute.Int("outbox.batch_size", batchSize),
 	)
 
-	span.SetAttributes(
-		attribute.Int("outbox.events_claimed", len(events)),
-	)
+	span.SetAttributes(attribute.Int("outbox.events_claimed", len(events)),)
 
 	for _, event := range events {
 		if err := s.publishEvent(ctx, event); err != nil {

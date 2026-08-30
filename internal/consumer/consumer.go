@@ -114,10 +114,7 @@ func (w *Consumer) processWithRetry(
 	ctx context.Context,
 	record kafka.Record,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"notification.consumer.process",
-	)
+	ctx, span := tracer.Start(ctx, "notification.consumer.process")
 	defer span.End()
 
 	start := time.Now()

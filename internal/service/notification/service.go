@@ -2,7 +2,6 @@ package notification
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +13,7 @@ import (
 	"github.com/disillusioned-labs/notification/internal/service"
 	"github.com/disillusioned-labs/notification/internal/template"
 	"github.com/disillusioned-labs/platform/contract/notification"
+	"github.com/disillusioned-labs/platform/pgutil"
 	"github.com/disillusioned-labs/platform/retry"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var tracer = otel.Tracer("service/notification")
@@ -72,10 +71,7 @@ func (n *notificationService) CreateFromEvent(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "decode notification.created payload")
 
-		return fmt.Errorf(
-			"decode notification.created payload: %w",
-			err,
-		)
+		return fmt.Errorf("decode notification.created payload: %w", err)
 	}
 
 	created, ok := payload.(notification.CreatedEvent)
@@ -95,10 +91,7 @@ func (n *notificationService) CreateFromEvent(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid notification.created payload")
 
-		return fmt.Errorf(
-			"validate notification.created payload: %w",
-			err,
-		)
+		return fmt.Errorf("validate notification.created payload: %w", err)
 	}
 
 	//if err := n.validateNotificationPayload(
@@ -125,10 +118,7 @@ func (n *notificationService) CreateFromEvent(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "check notification event")
 
-		return fmt.Errorf(
-			"check notification event: %w",
-			err,
-		)
+		return fmt.Errorf("check notification event: %w", err)
 	}
 
 	if exists {
@@ -150,7 +140,7 @@ func (n *notificationService) CreateFromEvent(
 				Category:         created.Category,
 				RecipientID:      created.RecipientID,
 				Payload:          created.Payload,
-				TraceID:          nullableText(event.TraceID),
+				TraceID:          pgutil.TextFromString(event.TraceID),
 			},
 		)
 		if err != nil {
@@ -201,21 +191,19 @@ func (n *notificationService) CreateFromEvent(
 				)
 			}
 
-			if err := createOutboxEvent(
+			if err := service.Emit(
 				ctx,
 				q,
 				deliveryAggregateType,
 				delivery.ID,
 				EventTypeNotificationDeliveryRequested,
+				notificationEventVersion,
 				event.Topic,
 				NotificationDeliveryRequestedEvent{
 					DeliveryID: delivery.ID.String(),
 				},
 			); err != nil {
-				return fmt.Errorf(
-					"create delivery requested outbox event: %w",
-					err,
-				)
+				return fmt.Errorf("create delivery requested outbox event: %w", err)
 			}
 		}
 
@@ -246,24 +234,15 @@ func (n *notificationService) RequestDelivery(
 	ctx context.Context,
 	event NotificationEvent,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.RequestDelivery",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.RequestDelivery")
 	defer span.End()
 
 	payload, err := event.DecodePayload()
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"decode delivery requested payload",
-		)
+		span.SetStatus(codes.Error, "decode delivery requested payload")
 
-		return fmt.Errorf(
-			"decode delivery requested payload: %w",
-			err,
-		)
+		return fmt.Errorf("decode delivery requested payload: %w", err)
 	}
 
 	request, ok := payload.(NotificationDeliveryRequestedEvent)
@@ -274,39 +253,24 @@ func (n *notificationService) RequestDelivery(
 		)
 
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery requested payload",
-		)
+		span.SetStatus(codes.Error, "invalid delivery requested payload")
 
 		return err
 	}
 
 	if err := request.Validate(); err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery requested payload",
-		)
+		span.SetStatus(codes.Error, "invalid delivery requested payload")
 
-		return fmt.Errorf(
-			"validate delivery requested payload: %w",
-			err,
-		)
+		return fmt.Errorf("validate delivery requested payload: %w", err)
 	}
 
 	deliveryID, err := uuid.Parse(request.DeliveryID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery id",
-		)
+		span.SetStatus(codes.Error, "invalid delivery id")
 
-		return fmt.Errorf(
-			"parse delivery id: %w",
-			err,
-		)
+		return fmt.Errorf("parse delivery id: %w", err)
 	}
 
 	delivery, err := n.repo.GetDeliveryByID(
@@ -316,24 +280,15 @@ func (n *notificationService) RequestDelivery(
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			span.RecordError(err)
-			span.SetStatus(
-				codes.Error,
-				"delivery not found",
-			)
+			span.SetStatus(codes.Error, "delivery not found")
 
 			return service.ErrDeliveryNotFound
 		}
 
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"get delivery",
-		)
+		span.SetStatus(codes.Error, "get delivery")
 
-		return fmt.Errorf(
-			"get delivery: %w",
-			err,
-		)
+		return fmt.Errorf("get delivery: %w", err)
 	}
 
 	switch delivery.Status {
@@ -364,24 +319,15 @@ func (n *notificationService) RetryDelivery(
 	ctx context.Context,
 	event NotificationEvent,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.RetryDelivery",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.RetryDelivery")
 	defer span.End()
 
 	payload, err := event.DecodePayload()
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"decode delivery retry payload",
-		)
+		span.SetStatus(codes.Error, "decode delivery retry payload")
 
-		return fmt.Errorf(
-			"decode delivery retry payload: %w",
-			err,
-		)
+		return fmt.Errorf("decode delivery retry payload: %w", err)
 	}
 
 	retryEvent, ok := payload.(NotificationDeliveryRetryEvent)
@@ -392,39 +338,24 @@ func (n *notificationService) RetryDelivery(
 		)
 
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery retry payload",
-		)
+		span.SetStatus(codes.Error, "invalid delivery retry payload")
 
 		return err
 	}
 
 	if err := retryEvent.Validate(); err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery retry payload",
-		)
+		span.SetStatus(codes.Error, "invalid delivery retry payload")
 
-		return fmt.Errorf(
-			"validate delivery retry payload: %w",
-			err,
-		)
+		return fmt.Errorf("validate delivery retry payload: %w", err)
 	}
 
 	deliveryID, err := uuid.Parse(retryEvent.DeliveryID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"invalid delivery id",
-		)
+		span.SetStatus(codes.Error, "invalid delivery id")
 
-		return fmt.Errorf(
-			"parse delivery id: %w",
-			err,
-		)
+		return fmt.Errorf("parse delivery id: %w", err)
 	}
 
 	delivery, err := n.repo.GetDeliveryByID(
@@ -434,24 +365,15 @@ func (n *notificationService) RetryDelivery(
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			span.RecordError(err)
-			span.SetStatus(
-				codes.Error,
-				"delivery not found",
-			)
+			span.SetStatus(codes.Error, "delivery not found")
 
 			return service.ErrDeliveryNotFound
 		}
 
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"get delivery",
-		)
+		span.SetStatus(codes.Error, "get delivery")
 
-		return fmt.Errorf(
-			"get delivery: %w",
-			err,
-		)
+		return fmt.Errorf("get delivery: %w", err)
 	}
 
 	switch delivery.Status {
@@ -487,10 +409,7 @@ func (n *notificationService) ProcessReadyRetries(
 	ctx context.Context,
 	limit int,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.ProcessReadyRetries",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.ProcessReadyRetries")
 	defer span.End()
 
 	ids, err := n.repo.ListReadyRetryDeliveries(
@@ -505,15 +424,9 @@ func (n *notificationService) ProcessReadyRetries(
 	)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"list ready retry deliveries",
-		)
+		span.SetStatus(codes.Error, "list ready retry deliveries")
 
-		return fmt.Errorf(
-			"list ready retry deliveries: %w",
-			err,
-		)
+		return fmt.Errorf("list ready retry deliveries: %w", err)
 	}
 
 	if len(ids) == 0 {
@@ -521,9 +434,7 @@ func (n *notificationService) ProcessReadyRetries(
 		return nil
 	}
 
-	span.SetAttributes(
-		attribute.Int("notification.retry_ready", len(ids)),
-	)
+	span.SetAttributes(attribute.Int("notification.retry_ready", len(ids)),)
 	n.metrics.retryReady.Record(ctx, float64(len(ids)))
 
 	for _, id := range ids {
@@ -539,17 +450,14 @@ func (n *notificationService) processDelivery(
 	ctx context.Context,
 	deliveryID uuid.UUID,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.processDelivery",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.processDelivery")
 	defer span.End()
 
 	delivery, err := n.repo.ClaimDelivery(
 		ctx,
 		repository.ClaimDeliveryParams{
 			ID:       deliveryID,
-			LockedBy: nullableText(n.instanceID),
+			LockedBy: pgutil.TextFromString(n.instanceID),
 		},
 	)
 	if err != nil {
@@ -560,10 +468,7 @@ func (n *notificationService) processDelivery(
 		}
 
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"claim delivery",
-		)
+		span.SetStatus(codes.Error, "claim delivery")
 
 		return fmt.Errorf("claim delivery: %w", err)
 	}
@@ -597,10 +502,7 @@ func (n *notificationService) processDelivery(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get notification payload")
 
-		return fmt.Errorf(
-			"get notification payload: %w",
-			err,
-		)
+		return fmt.Errorf("get notification payload: %w", err)
 	}
 
 	renderedPayload, err := n.renderer.Render(
@@ -648,10 +550,7 @@ func (n *notificationService) handleProviderSuccess(
 	delivery repository.NotificationDelivery,
 	result provider.SendResult,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.handleProviderSuccess",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.handleProviderSuccess")
 	defer span.End()
 
 	attemptNumber := delivery.RetryCount + 1
@@ -663,9 +562,9 @@ func (n *notificationService) handleProviderSuccess(
 				DeliveryID:        delivery.ID,
 				AttemptNumber:     attemptNumber,
 				Provider:          delivery.Provider,
-				ProviderMessageID: nullableText(result.MessageID),
-				Status:            "success",
-				HttpStatusCode:    nullableInt32(result.HTTPStatusCode),
+				ProviderMessageID: pgutil.TextFromString(result.MessageID),
+				Status:            constant.AttemptStatusSuccess,
+				HttpStatusCode:    pgutil.Int4(result.HTTPStatusCode),
 				ErrorType:         pgtype.Text{},
 				ErrorMessage:      pgtype.Text{},
 				Response:          result.Response,
@@ -679,7 +578,7 @@ func (n *notificationService) handleProviderSuccess(
 			ctx,
 			repository.MarkDeliverySentParams{
 				ID:       delivery.ID,
-				LockedBy: nullableText(n.instanceID),
+				LockedBy: pgutil.TextFromString(n.instanceID),
 			},
 		)
 		if err != nil {
@@ -687,10 +586,7 @@ func (n *notificationService) handleProviderSuccess(
 		}
 
 		if rows != 1 {
-			return fmt.Errorf(
-				"mark delivery sent: expected 1 row, affected %d",
-				rows,
-			)
+			return fmt.Errorf("mark delivery sent: expected 1 row, affected %d", rows)
 		}
 
 		return nil
@@ -721,10 +617,7 @@ func (n *notificationService) handleProviderFailure(
 	result provider.SendResult,
 	sendErr error,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.handleProviderFailure",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.handleProviderFailure")
 	defer span.End()
 
 	attemptNumber := delivery.RetryCount + 1
@@ -770,19 +663,16 @@ func (n *notificationService) handleProviderFailure(
 				DeliveryID:        delivery.ID,
 				AttemptNumber:     attemptNumber,
 				Provider:          delivery.Provider,
-				ProviderMessageID: nullableText(result.MessageID),
-				Status:            "failed",
-				HttpStatusCode:    nullableInt32(result.HTTPStatusCode),
-				ErrorType:         nullableText(errorType),
-				ErrorMessage:      nullableText(errorMessage),
+				ProviderMessageID: pgutil.TextFromString(result.MessageID),
+				Status:            constant.AttemptStatusFailed,
+				HttpStatusCode:    pgutil.Int4(result.HTTPStatusCode),
+				ErrorType:         pgutil.TextFromString(errorType),
+				ErrorMessage:      pgutil.TextFromString(errorMessage),
 				Response:          result.Response,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"create failed delivery attempt: %w",
-				err,
-			)
+			return fmt.Errorf("create failed delivery attempt: %w", err)
 		}
 
 		if !retryable {
@@ -790,21 +680,15 @@ func (n *notificationService) handleProviderFailure(
 				ctx,
 				repository.MarkDeliveryFailedParams{
 					ID:       delivery.ID,
-					LockedBy: nullableText(n.instanceID),
+					LockedBy: pgutil.TextFromString(n.instanceID),
 				},
 			)
 			if err != nil {
-				return fmt.Errorf(
-					"mark delivery failed: %w",
-					err,
-				)
+				return fmt.Errorf("mark delivery failed: %w", err)
 			}
 
 			if rows != 1 {
-				return fmt.Errorf(
-					"mark delivery failed: expected 1 row, affected %d",
-					rows,
-				)
+				return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
 			}
 
 			return nil
@@ -815,36 +699,24 @@ func (n *notificationService) handleProviderFailure(
 			repository.MarkDeliveryRetryParams{
 				ID:          delivery.ID,
 				NextRetryAt: nextRetryAt,
-				LockedBy:    nullableText(n.instanceID),
+				LockedBy:    pgutil.TextFromString(n.instanceID),
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"mark delivery retry: %w",
-				err,
-			)
+			return fmt.Errorf("mark delivery retry: %w", err)
 		}
 
 		if rows != 1 {
-			return fmt.Errorf(
-				"mark delivery retry: expected 1 row, affected %d",
-				rows,
-			)
+			return fmt.Errorf("mark delivery retry: expected 1 row, affected %d", rows)
 		}
 
 		return nil
 	})
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"persist provider failure",
-		)
+		span.SetStatus(codes.Error, "persist provider failure")
 
-		return fmt.Errorf(
-			"persist provider failure: %w",
-			err,
-		)
+		return fmt.Errorf("persist provider failure: %w", err)
 	}
 
 	if retryable {
@@ -889,10 +761,7 @@ func (n *notificationService) handleProviderResolutionFailure(
 	delivery repository.NotificationDelivery,
 	providerErr error,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.handleProviderResolutionFailure",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.handleProviderResolutionFailure")
 	defer span.End()
 
 	if providerErr == nil {
@@ -933,16 +802,13 @@ func (n *notificationService) handleProviderResolutionFailure(
 				ProviderMessageID: pgtype.Text{},
 				Status:            constant.AttemptStatusFailed,
 				HttpStatusCode:    pgtype.Int4{},
-				ErrorType:         nullableText(errorType),
-				ErrorMessage:      nullableText(errorMessage),
+				ErrorType:         pgutil.TextFromString(errorType),
+				ErrorMessage:      pgutil.TextFromString(errorMessage),
 				Response:          nil,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"create provider resolution attempt: %w",
-				err,
-			)
+			return fmt.Errorf("create provider resolution attempt: %w", err)
 		}
 
 		if retryable {
@@ -951,21 +817,15 @@ func (n *notificationService) handleProviderResolutionFailure(
 				repository.MarkDeliveryRetryParams{
 					ID:          delivery.ID,
 					NextRetryAt: nextRetryAt,
-					LockedBy:    nullableText(n.instanceID),
+					LockedBy:    pgutil.TextFromString(n.instanceID),
 				},
 			)
 			if err != nil {
-				return fmt.Errorf(
-					"mark delivery retry: %w",
-					err,
-				)
+				return fmt.Errorf("mark delivery retry: %w", err)
 			}
 
 			if rows != 1 {
-				return fmt.Errorf(
-					"mark delivery retry: expected 1 row, affected %d",
-					rows,
-				)
+				return fmt.Errorf("mark delivery retry: expected 1 row, affected %d", rows)
 			}
 
 			return nil
@@ -975,36 +835,24 @@ func (n *notificationService) handleProviderResolutionFailure(
 			ctx,
 			repository.MarkDeliveryFailedParams{
 				ID:       delivery.ID,
-				LockedBy: nullableText(n.instanceID),
+				LockedBy: pgutil.TextFromString(n.instanceID),
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"mark delivery failed: %w",
-				err,
-			)
+			return fmt.Errorf("mark delivery failed: %w", err)
 		}
 
 		if rows != 1 {
-			return fmt.Errorf(
-				"mark delivery failed: expected 1 row, affected %d",
-				rows,
-			)
+			return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
 		}
 
 		return nil
 	})
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"persist provider resolution failure",
-		)
+		span.SetStatus(codes.Error, "persist provider resolution failure")
 
-		return fmt.Errorf(
-			"persist provider resolution failure: %w",
-			err,
-		)
+		return fmt.Errorf("persist provider resolution failure: %w", err)
 	}
 
 	if retryable {
@@ -1046,10 +894,7 @@ func (n *notificationService) handleRenderingFailure(
 	delivery repository.NotificationDelivery,
 	renderErr error,
 ) error {
-	ctx, span := tracer.Start(
-		ctx,
-		"NotificationService.handleRenderingFailure",
-	)
+	ctx, span := tracer.Start(ctx, "NotificationService.handleRenderingFailure")
 	defer span.End()
 
 	if renderErr == nil {
@@ -1068,54 +913,39 @@ func (n *notificationService) handleRenderingFailure(
 				ProviderMessageID: pgtype.Text{},
 				Status:            constant.AttemptStatusFailed,
 				HttpStatusCode:    pgtype.Int4{},
-				ErrorType:         nullableText("template_rendering"),
-				ErrorMessage:      nullableText(renderErr.Error()),
+				ErrorType:         pgutil.TextFromString("template_rendering"),
+				ErrorMessage:      pgutil.TextFromString(renderErr.Error()),
 				Response:          nil,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"create rendering failure attempt: %w",
-				err,
-			)
+			return fmt.Errorf("create rendering failure attempt: %w", err)
 		}
 
 		rows, err := q.MarkDeliveryFailed(
 			ctx,
 			repository.MarkDeliveryFailedParams{
 				ID: delivery.ID,
-				LockedBy: nullableText(
+				LockedBy: pgutil.TextFromString(
 					n.instanceID,
 				),
 			},
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"mark delivery failed after rendering error: %w",
-				err,
-			)
+			return fmt.Errorf("mark delivery failed after rendering error: %w", err)
 		}
 
 		if rows != 1 {
-			return fmt.Errorf(
-				"mark delivery failed: expected 1 row, affected %d",
-				rows,
-			)
+			return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
 		}
 
 		return nil
 	})
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(
-			codes.Error,
-			"persist rendering failure",
-		)
+		span.SetStatus(codes.Error, "persist rendering failure")
 
-		return fmt.Errorf(
-			"persist rendering failure: %w",
-			err,
-		)
+		return fmt.Errorf("persist rendering failure: %w", err)
 	}
 
 	n.metrics.deliveryFailed.Add(ctx, 1, providerAttr(delivery.Provider))
@@ -1143,70 +973,15 @@ func (n *notificationService) markDeliveryFailed(
 		ctx,
 		repository.MarkDeliveryFailedParams{
 			ID:       deliveryID,
-			LockedBy: nullableText(n.instanceID),
+			LockedBy: pgutil.TextFromString(n.instanceID),
 		},
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"mark delivery failed: %w",
-			err,
-		)
+		return fmt.Errorf("mark delivery failed: %w", err)
 	}
 
 	if rows != 1 {
-		return fmt.Errorf(
-			"mark delivery failed: expected 1 row, affected %d",
-			rows,
-		)
-	}
-
-	return nil
-}
-
-func createOutboxEvent(
-	ctx context.Context,
-	q repository.Querier,
-	aggregateType string,
-	aggregateID uuid.UUID,
-	eventType string,
-	topic string,
-	event any,
-) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf(
-			"marshal outbox event payload: %w",
-			err,
-		)
-	}
-
-	spanCtx := trace.SpanContextFromContext(ctx)
-
-	var traceID pgtype.Text
-	if spanCtx.IsValid() {
-		traceID = pgtype.Text{
-			String: spanCtx.TraceID().String(),
-			Valid:  true,
-		}
-	}
-
-	_, err = q.CreateOutboxEvent(
-		ctx,
-		repository.CreateOutboxEventParams{
-			AggregateType: aggregateType,
-			AggregateID:   aggregateID,
-			EventType:     eventType,
-			EventVersion:  notificationEventVersion,
-			Topic:         topic,
-			Payload:       payload,
-			TraceID:       traceID,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"create outbox event: %w",
-			err,
-		)
+		return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
 	}
 
 	return nil
@@ -1222,27 +997,5 @@ func providerErrorType(err error) string {
 
 	default:
 		return string(provider.ErrorTypeInternal)
-	}
-}
-
-func nullableText(value string) pgtype.Text {
-	if value == "" {
-		return pgtype.Text{}
-	}
-
-	return pgtype.Text{
-		String: value,
-		Valid:  true,
-	}
-}
-
-func nullableInt32(value int32) pgtype.Int4 {
-	if value == 0 {
-		return pgtype.Int4{}
-	}
-
-	return pgtype.Int4{
-		Int32: value,
-		Valid: true,
 	}
 }
