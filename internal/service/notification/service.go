@@ -117,6 +117,7 @@ func (n *notificationService) CreateFromEvent(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "check notification event")
+		n.log.ErrorContext(ctx, "check notification event failed", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("check notification event: %w", err)
 	}
@@ -223,6 +224,7 @@ func (n *notificationService) CreateFromEvent(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create notification")
+		n.log.ErrorContext(ctx, "create notification failed", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("create notification: %w", err)
 	}
@@ -287,6 +289,7 @@ func (n *notificationService) RequestDelivery(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get delivery")
+		n.log.ErrorContext(ctx, "get delivery failed", "error", err, "delivery_id", deliveryID)
 
 		return fmt.Errorf("get delivery: %w", err)
 	}
@@ -372,6 +375,7 @@ func (n *notificationService) RetryDelivery(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get delivery")
+		n.log.ErrorContext(ctx, "get delivery failed", "error", err, "delivery_id", deliveryID)
 
 		return fmt.Errorf("get delivery: %w", err)
 	}
@@ -425,6 +429,7 @@ func (n *notificationService) ProcessReadyRetries(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list ready retry deliveries")
+		n.log.ErrorContext(ctx, "list ready retry deliveries failed", "error", err)
 
 		return fmt.Errorf("list ready retry deliveries: %w", err)
 	}
@@ -469,6 +474,7 @@ func (n *notificationService) processDelivery(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "claim delivery")
+		n.log.ErrorContext(ctx, "claim delivery failed", "error", err, "delivery_id", deliveryID)
 
 		return fmt.Errorf("claim delivery: %w", err)
 	}

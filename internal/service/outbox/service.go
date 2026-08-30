@@ -52,6 +52,14 @@ func (s *outboxService) PublishPending(
 	instanceID string,
 	batchSize int,
 ) error {
+	ctx, span := tracer.Start(ctx, "OutboxService.PublishPending")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("outbox.instance_id", instanceID),
+		attribute.Int("outbox.batch_size", batchSize),
+	)
+
 	if batchSize <= 0 {
 		batchSize = defaultBatchSize
 	}
@@ -67,6 +75,8 @@ func (s *outboxService) PublishPending(
 		},
 	)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "claim pending outbox events")
 		s.log.ErrorContext(
 			ctx,
 			"claim pending outbox events failed",
@@ -81,19 +91,11 @@ func (s *outboxService) PublishPending(
 	s.recordOldestPendingAge(ctx)
 	s.metrics.eventsClaimed.Add(ctx, int64(len(events)))
 
+	span.SetAttributes(attribute.Int("outbox.events_claimed", len(events)),)
+
 	if len(events) == 0 {
 		return nil
 	}
-
-	ctx, span := tracer.Start(ctx, "OutboxService.PublishPending")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("outbox.instance_id", instanceID),
-		attribute.Int("outbox.batch_size", batchSize),
-	)
-
-	span.SetAttributes(attribute.Int("outbox.events_claimed", len(events)),)
 
 	for _, event := range events {
 		if err := s.publishEvent(ctx, event); err != nil {
