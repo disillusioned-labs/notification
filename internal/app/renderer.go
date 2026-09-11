@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/disillusioned-labs/notification/internal/template"
+	"github.com/disillusioned-labs/notification/internal/template/templates/email/approval_decision_received"
+	"github.com/disillusioned-labs/notification/internal/template/templates/email/approval_reminder"
+	"github.com/disillusioned-labs/notification/internal/template/templates/email/approval_step_activated"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_deleted"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation_accepted"
@@ -24,6 +27,12 @@ func buildRenderer() (template.Renderer, error) {
 		"organization_member_removed":      func() template.Payload { return &organization_member_removed.OrganizationMemberRemoved{} },
 		"organization_member_role_updated": func() template.Payload { return &organization_member_role_updated.OrganizationMemberRoleUpdated{} },
 		"organization_deleted":             func() template.Payload { return &organization_deleted.OrganizationDeleted{} },
+
+		// Approval notifications, emitted by expense via its outbox on the
+		// notification.transactional lane.
+		"approval_step_activated":    func() template.Payload { return &approval_step_activated.ApprovalStepActivated{} },
+		"approval_decision_received": func() template.Payload { return &approval_decision_received.ApprovalDecisionReceived{} },
+		"approval_reminder":          func() template.Payload { return &approval_reminder.ApprovalReminder{} },
 	}
 
 	for name, newPayload := range payloads {

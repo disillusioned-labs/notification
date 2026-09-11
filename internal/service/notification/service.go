@@ -70,6 +70,7 @@ func (n *notificationService) CreateFromEvent(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "decode notification.created payload")
+		n.log.ErrorContext(ctx, "decode notification.created payload failed", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("decode notification.created payload: %w", err)
 	}
@@ -83,6 +84,7 @@ func (n *notificationService) CreateFromEvent(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid notification.created payload")
+		n.log.ErrorContext(ctx, "invalid notification.created payload", "error", err, "event_id", event.EventID)
 
 		return err
 	}
@@ -90,6 +92,7 @@ func (n *notificationService) CreateFromEvent(
 	if err := created.Validate(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid notification.created payload")
+		n.log.ErrorContext(ctx, "invalid notification.created payload", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("validate notification.created payload: %w", err)
 	}
@@ -243,6 +246,7 @@ func (n *notificationService) RequestDelivery(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "decode delivery requested payload")
+		n.log.ErrorContext(ctx, "decode delivery requested payload failed", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("decode delivery requested payload: %w", err)
 	}
@@ -256,6 +260,7 @@ func (n *notificationService) RequestDelivery(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery requested payload")
+		n.log.ErrorContext(ctx, "invalid delivery requested payload", "error", err, "event_id", event.EventID)
 
 		return err
 	}
@@ -263,6 +268,7 @@ func (n *notificationService) RequestDelivery(
 	if err := request.Validate(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery requested payload")
+		n.log.ErrorContext(ctx, "invalid delivery requested payload", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("validate delivery requested payload: %w", err)
 	}
@@ -271,6 +277,7 @@ func (n *notificationService) RequestDelivery(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery id")
+		n.log.ErrorContext(ctx, "invalid delivery id", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("parse delivery id: %w", err)
 	}
@@ -283,6 +290,7 @@ func (n *notificationService) RequestDelivery(
 		if errors.Is(err, pgx.ErrNoRows) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "delivery not found")
+			n.log.ErrorContext(ctx, "delivery not found", "error", err, "delivery_id", deliveryID)
 
 			return service.ErrDeliveryNotFound
 		}
@@ -329,6 +337,7 @@ func (n *notificationService) RetryDelivery(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "decode delivery retry payload")
+		n.log.ErrorContext(ctx, "decode delivery retry payload failed", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("decode delivery retry payload: %w", err)
 	}
@@ -342,6 +351,7 @@ func (n *notificationService) RetryDelivery(
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery retry payload")
+		n.log.ErrorContext(ctx, "invalid delivery retry payload", "error", err, "event_id", event.EventID)
 
 		return err
 	}
@@ -349,6 +359,7 @@ func (n *notificationService) RetryDelivery(
 	if err := retryEvent.Validate(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery retry payload")
+		n.log.ErrorContext(ctx, "invalid delivery retry payload", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("validate delivery retry payload: %w", err)
 	}
@@ -357,6 +368,7 @@ func (n *notificationService) RetryDelivery(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid delivery id")
+		n.log.ErrorContext(ctx, "invalid delivery id", "error", err, "event_id", event.EventID)
 
 		return fmt.Errorf("parse delivery id: %w", err)
 	}
@@ -369,6 +381,7 @@ func (n *notificationService) RetryDelivery(
 		if errors.Is(err, pgx.ErrNoRows) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "delivery not found")
+			n.log.ErrorContext(ctx, "delivery not found", "error", err, "delivery_id", deliveryID)
 
 			return service.ErrDeliveryNotFound
 		}
@@ -501,12 +514,14 @@ func (n *notificationService) processDelivery(
 
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "notification not found")
+			n.log.ErrorContext(ctx, "notification not found", "error", err, "delivery_id", delivery.ID)
 
 			return service.ErrNotificationNotFound
 		}
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get notification payload")
+		n.log.ErrorContext(ctx, "get notification payload failed", "error", err, "delivery_id", delivery.ID)
 
 		return fmt.Errorf("get notification payload: %w", err)
 	}
@@ -600,6 +615,7 @@ func (n *notificationService) handleProviderSuccess(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "persist provider success")
+		n.log.ErrorContext(ctx, "persist provider success failed", "error", err, "delivery_id", delivery.ID)
 
 		return fmt.Errorf("persist provider success: %w", err)
 	}
@@ -721,6 +737,7 @@ func (n *notificationService) handleProviderFailure(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "persist provider failure")
+		n.log.ErrorContext(ctx, "persist provider failure failed", "error", err, "delivery_id", delivery.ID)
 
 		return fmt.Errorf("persist provider failure: %w", err)
 	}
@@ -857,6 +874,7 @@ func (n *notificationService) handleProviderResolutionFailure(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "persist provider resolution failure")
+		n.log.ErrorContext(ctx, "persist provider resolution failure failed", "error", err, "delivery_id", delivery.ID)
 
 		return fmt.Errorf("persist provider resolution failure: %w", err)
 	}
@@ -950,6 +968,7 @@ func (n *notificationService) handleRenderingFailure(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "persist rendering failure")
+		n.log.ErrorContext(ctx, "persist rendering failure failed", "error", err, "delivery_id", delivery.ID)
 
 		return fmt.Errorf("persist rendering failure: %w", err)
 	}
