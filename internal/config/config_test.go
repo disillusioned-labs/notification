@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	platformconfig "github.com/disillusioned-labs/platform/config"
 	"github.com/spf13/viper"
+
+	platformconfig "github.com/disillusioned-labs/platform/config"
 )
 
 // setResendEnv supplies the required, no-default resend settings so that
@@ -371,6 +372,7 @@ func validConfig() *Config {
 			},
 		},
 		Resend: ResendConfig{APIKey: "test-api-key", From: "test@example.com"},
+		Worker: WorkerConfig{ReclaimInterval: time.Minute, LeaseTimeout: 10 * time.Minute, CleanupInterval: time.Hour},
 		OTel: platformconfig.OTelConfig{
 			TracesExporter: platformconfig.OTelExporterOTLP, MetricsExporter: platformconfig.OTelExporterOTLP,
 			Endpoint: "http://localhost:4317", TracesSampler: "parentbased_traceidratio",

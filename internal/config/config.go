@@ -18,9 +18,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/spf13/viper"
 
 	platformconfig "github.com/disillusioned-labs/platform/config"
-	"github.com/spf13/viper"
 )
 
 // Config is the root of all application settings, one field per subsystem.
@@ -31,6 +33,7 @@ type Config struct {
 	Cache    platformconfig.CacheConfig    `mapstructure:"cache"`
 	Kafka    platformconfig.KafkaConfig    `mapstructure:"kafka"`
 	Resend   ResendConfig                  `mapstructure:"resend"`
+	Worker   WorkerConfig                  `mapstructure:"worker"`
 	OTel     platformconfig.OTelConfig     `mapstructure:"otel"`
 	Log      platformconfig.LogConfig      `mapstructure:"log"`
 }
@@ -39,6 +42,15 @@ type Config struct {
 type ResendConfig struct {
 	APIKey string `mapstructure:"api_key"`
 	From   string `mapstructure:"from"`
+}
+
+// WorkerConfig holds the scheduled maintenance intervals for the worker
+// process. LeaseTimeout must stay well above the slowest real provider call,
+// or live deliveries get reclaimed mid-send.
+type WorkerConfig struct {
+	ReclaimInterval time.Duration `mapstructure:"reclaim_interval"`
+	LeaseTimeout    time.Duration `mapstructure:"lease_timeout"`
+	CleanupInterval time.Duration `mapstructure:"cleanup_interval"`
 }
 
 // DotEnvFile is the optional local overrides file, loaded from the working
@@ -211,6 +223,19 @@ func (c *Config) validate() error {
 		fail("resend.from must not be empty")
 	}
 
+	// Worker maintenance validation.
+	if c.Worker.ReclaimInterval <= 0 {
+		fail("worker.reclaim_interval must be > 0, got %s", c.Worker.ReclaimInterval)
+	}
+
+	if c.Worker.LeaseTimeout <= 0 {
+		fail("worker.lease_timeout must be > 0, got %s", c.Worker.LeaseTimeout)
+	}
+
+	if c.Worker.CleanupInterval <= 0 {
+		fail("worker.cleanup_interval must be > 0, got %s", c.Worker.CleanupInterval)
+	}
+
 	if err := platformconfig.ValidateOTel(&c.OTel); err != nil {
 		errs = append(errs, err)
 	}
@@ -270,6 +295,10 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("resend.api_key", "")
 	v.SetDefault("resend.from", "")
+
+	v.SetDefault("worker.reclaim_interval", "1m")
+	v.SetDefault("worker.lease_timeout", "10m")
+	v.SetDefault("worker.cleanup_interval", "1h")
 
 	v.SetDefault("otel.sdk_disabled", false)
 	v.SetDefault("otel.traces_exporter", platformconfig.OTelExporterOTLP)

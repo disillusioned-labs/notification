@@ -7,6 +7,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/disillusioned-labs/notification/internal/constant"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/repository"
@@ -15,12 +22,6 @@ import (
 	"github.com/disillusioned-labs/platform/contract/notification"
 	"github.com/disillusioned-labs/platform/pgutil"
 	"github.com/disillusioned-labs/platform/retry"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 var tracer = otel.Tracer("service/notification")
@@ -35,6 +36,7 @@ type NotificationService interface {
 	RequestDelivery(ctx context.Context, event NotificationEvent) error
 	RetryDelivery(ctx context.Context, event NotificationEvent) error
 	ProcessReadyRetries(ctx context.Context, limit int) error
+	ReclaimStaleDeliveries(ctx context.Context, leaseTimeout time.Duration) (int, error)
 }
 
 type notificationService struct {
@@ -96,22 +98,6 @@ func (n *notificationService) CreateFromEvent(
 
 		return fmt.Errorf("validate notification.created payload: %w", err)
 	}
-
-	//if err := n.validateNotificationPayload(
-	//	created.NotificationType,
-	//	created.Payload,
-	//); err != nil {
-	//	span.RecordError(err)
-	//	span.SetStatus(
-	//		codes.Error,
-	//		"invalid notification business payload",
-	//	)
-	//
-	//	return fmt.Errorf(
-	//		"validate notification business payload: %w",
-	//		err,
-	//	)
-	//}
 
 	exists, err := n.repo.NotificationExistsByEventID(
 		ctx,
@@ -213,7 +199,6 @@ func (n *notificationService) CreateFromEvent(
 
 		return nil
 	})
-
 	if err != nil {
 		if errors.Is(err, service.ErrDuplicateEvent) {
 			n.log.InfoContext(
@@ -452,7 +437,7 @@ func (n *notificationService) ProcessReadyRetries(
 		return nil
 	}
 
-	span.SetAttributes(attribute.Int("notification.retry_ready", len(ids)),)
+	span.SetAttributes(attribute.Int("notification.retry_ready", len(ids)))
 	n.metrics.retryReady.Record(ctx, float64(len(ids)))
 
 	for _, id := range ids {
@@ -633,6 +618,7 @@ func (n *notificationService) handleProviderSuccess(
 
 	return nil
 }
+
 func (n *notificationService) handleProviderFailure(
 	ctx context.Context,
 	delivery repository.NotificationDelivery,
@@ -1000,4 +986,112 @@ func providerErrorType(err error) string {
 	default:
 		return string(provider.ErrorTypeInternal)
 	}
+}
+
+// laneTopicFor maps a notification category to the Kafka lane its delivery
+// events travel on. A reclaimed delivery is re-enqueued on the same lane the
+// original notification arrived on, so the consumer deployment that serves
+// that category picks it up again.
+func laneTopicFor(category string) (string, error) {
+	switch category {
+	case constant.CategoryTransactional:
+		return constant.TopicNotificationTransactional, nil
+
+	case constant.CategorySocial:
+		return constant.TopicNotificationSocial, nil
+
+	case constant.CategoryMarketing:
+		return constant.TopicNotificationMarketing, nil
+
+	default:
+		return "", fmt.Errorf("unknown notification category %q", category)
+	}
+}
+
+// ReclaimStaleDeliveries returns processing leases older than leaseTimeout to
+// pending and re-enqueues a delivery.requested event for each reclaimed row,
+// both inside one transaction, so a worker that died mid-send cannot strand a
+// delivery in processing forever. The consumer that receives the re-enqueued
+// event re-claims the delivery; ClaimDelivery keeps concurrent workers honest.
+func (n *notificationService) ReclaimStaleDeliveries(
+	ctx context.Context,
+	leaseTimeout time.Duration,
+) (int, error) {
+	ctx, span := tracer.Start(ctx, "NotificationService.ReclaimStaleDeliveries")
+	defer span.End()
+
+	cutoff := pgtype.Timestamptz{
+		Time:  time.Now().Add(-leaseTimeout),
+		Valid: true,
+	}
+
+	reclaimed := 0
+
+	err := n.repo.ExecTx(ctx, func(q repository.Querier) error {
+		deliveries, err := q.ReclaimAbandonedDeliveries(ctx, cutoff)
+		if err != nil {
+			return fmt.Errorf("reclaim abandoned deliveries: %w", err)
+		}
+
+		for _, delivery := range deliveries {
+			row, err := q.GetNotificationByID(ctx, delivery.NotificationID)
+			if err != nil {
+				return fmt.Errorf(
+					"get notification for reclaimed delivery %s: %w",
+					delivery.ID,
+					err,
+				)
+			}
+
+			topic, err := laneTopicFor(row.Category)
+			if err != nil {
+				return fmt.Errorf(
+					"resolve lane for reclaimed delivery %s: %w",
+					delivery.ID,
+					err,
+				)
+			}
+
+			if err := service.Emit(
+				ctx,
+				q,
+				deliveryAggregateType,
+				delivery.ID,
+				EventTypeNotificationDeliveryRequested,
+				notificationEventVersion,
+				topic,
+				NotificationDeliveryRequestedEvent{
+					DeliveryID: delivery.ID.String(),
+				},
+			); err != nil {
+				return fmt.Errorf(
+					"re-enqueue reclaimed delivery %s: %w",
+					delivery.ID,
+					err,
+				)
+			}
+		}
+
+		reclaimed = len(deliveries)
+
+		return nil
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "reclaim stale deliveries")
+		n.log.ErrorContext(ctx, "reclaim stale deliveries failed", "error", err)
+
+		return 0, err
+	}
+
+	if reclaimed > 0 {
+		n.log.InfoContext(
+			ctx,
+			"abandoned deliveries reclaimed",
+			"count", reclaimed,
+			"lease_timeout", leaseTimeout,
+		)
+	}
+
+	return reclaimed, nil
 }

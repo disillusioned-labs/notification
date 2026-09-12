@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/disillusioned-labs/notification/internal/config"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
@@ -22,7 +24,6 @@ import (
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
 	"github.com/disillusioned-labs/platform/telemetry"
-	"golang.org/x/sync/errgroup"
 
 	migrations "github.com/disillusioned-labs/notification/db/migrations"
 )
@@ -271,6 +272,7 @@ func RunWorker(cfg *config.Config) error {
 	outboxService := outbox.NewOutboxService(
 		repo,
 		kafkaProducer,
+		cfg.Service.Name,
 		log,
 		outboxMetrics,
 	)
@@ -284,6 +286,18 @@ func RunWorker(cfg *config.Config) error {
 	)
 
 	// -------------------------------------------------------------------------
+	// Maintenance
+	// -------------------------------------------------------------------------
+	maintenanceWorker := worker.NewMaintenanceWorker(
+		notificationService,
+		outboxService,
+		log,
+		worker.WithReclaimInterval(cfg.Worker.ReclaimInterval),
+		worker.WithLeaseTimeout(cfg.Worker.LeaseTimeout),
+		worker.WithCleanupInterval(cfg.Worker.CleanupInterval),
+	)
+
+	// -------------------------------------------------------------------------
 	// Run
 	// -------------------------------------------------------------------------
 	g, runCtx := errgroup.WithContext(ctx)
@@ -294,6 +308,10 @@ func RunWorker(cfg *config.Config) error {
 
 	g.Go(func() error {
 		return retryWorker.Run(runCtx)
+	})
+
+	g.Go(func() error {
+		return maintenanceWorker.Run(runCtx)
 	})
 
 	<-runCtx.Done()

@@ -6,8 +6,9 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/disillusioned-labs/notification/internal/provider"
 	resendSDK "github.com/resend/resend-go/v3"
+
+	"github.com/disillusioned-labs/notification/internal/provider"
 )
 
 func mapError(err error) (provider.SendResult, error) {
@@ -95,9 +96,11 @@ func isTemporaryNetworkError(err error) bool {
 		return false
 	}
 
+	// net.Error.Temporary is deprecated and ill-defined; the timeouts we
+	// actually want to retry surface as timeout errors.
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return netErr.Temporary()
+		return netErr.Timeout()
 	}
 
 	return false

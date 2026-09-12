@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/disillusioned-labs/notification/internal/provider"
 	resendSDK "github.com/resend/resend-go/v3"
+
+	"github.com/disillusioned-labs/notification/internal/provider"
 )
 
 const (
@@ -105,9 +106,8 @@ func (p *Provider) Send(
 	}
 
 	params := &resendSDK.SendEmailRequest{
-		From: p.from,
-		//To:      []string{to},
-		To:      []string{"delivered@resend.dev"},
+		From:    p.from,
+		To:      []string{to},
 		Subject: payload.Subject,
 		Html:    payload.HTML,
 		Text:    payload.Text,

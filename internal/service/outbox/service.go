@@ -24,11 +24,13 @@ const (
 
 type OutboxService interface {
 	PublishPending(ctx context.Context, instanceID string, batchSize int) error
+	CleanupPublished(ctx context.Context) (int64, error)
 }
 
 type outboxService struct {
 	repo     repository.Store
 	producer kafka.Producer
+	source   string
 	log      *slog.Logger
 	metrics  Metrics
 }
@@ -36,12 +38,14 @@ type outboxService struct {
 func NewOutboxService(
 	repo repository.Store,
 	producer kafka.Producer,
+	source string,
 	log *slog.Logger,
 	metrics Metrics,
 ) OutboxService {
 	return &outboxService{
 		repo:     repo,
 		producer: producer,
+		source:   source,
 		log:      log,
 		metrics:  metrics,
 	}
@@ -91,7 +95,7 @@ func (s *outboxService) PublishPending(
 	s.recordOldestPendingAge(ctx)
 	s.metrics.eventsClaimed.Add(ctx, int64(len(events)))
 
-	span.SetAttributes(attribute.Int("outbox.events_claimed", len(events)),)
+	span.SetAttributes(attribute.Int("outbox.events_claimed", len(events)))
 
 	if len(events) == 0 {
 		return nil
@@ -104,6 +108,38 @@ func (s *outboxService) PublishPending(
 	}
 
 	return nil
+}
+
+// CleanupPublished deletes outbox events published more than 7 days ago (the
+// retention window is part of the DeletePublishedOutboxEvents query). Without
+// it the outbox table grows without bound; the window also keeps recent
+// events around long enough to be inspected after an incident.
+func (s *outboxService) CleanupPublished(ctx context.Context) (int64, error) {
+	ctx, span := tracer.Start(ctx, "OutboxService.CleanupPublished")
+	defer span.End()
+
+	deleted, err := s.repo.DeletePublishedOutboxEvents(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "delete published outbox events")
+		s.log.ErrorContext(
+			ctx,
+			"delete published outbox events failed",
+			"error", err,
+		)
+
+		return 0, fmt.Errorf("delete published outbox events: %w", err)
+	}
+
+	if deleted > 0 {
+		s.log.InfoContext(
+			ctx,
+			"published outbox events cleaned up",
+			"deleted", deleted,
+		)
+	}
+
+	return deleted, nil
 }
 
 func (s *outboxService) publishEvent(
@@ -144,7 +180,7 @@ func (s *outboxService) publishEvent(
 		},
 		kafka.RecordHeader{
 			Key:   "source-service",
-			Value: []byte("identity"),
+			Value: []byte(s.source),
 		},
 		kafka.RecordHeader{
 			Key:   "aggregate-type",

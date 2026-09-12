@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
+
 	"github.com/disillusioned-labs/notification/internal/config"
 	"github.com/disillusioned-labs/notification/internal/consumer"
 	"github.com/disillusioned-labs/notification/internal/provider"
@@ -21,7 +23,6 @@ import (
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
 	"github.com/disillusioned-labs/platform/telemetry"
-	"go.opentelemetry.io/otel"
 
 	"golang.org/x/sync/errgroup"
 
