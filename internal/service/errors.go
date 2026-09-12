@@ -17,7 +17,6 @@ import (
 // Error is a domain error that knows how it surfaces over HTTP.
 type Error = platformerrors.Error
 
-// NewError builds a domain error for a resource-specific failure.
 var NewError = platformerrors.NewError
 
 var (
