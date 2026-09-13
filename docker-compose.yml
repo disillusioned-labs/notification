@@ -89,6 +89,7 @@ services:
       - data
       - messaging
       - observability
+      - podman-ipv6
     restart: unless-stopped
 
 networks:
