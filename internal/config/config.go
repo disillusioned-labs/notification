@@ -15,6 +15,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,6 +34,8 @@ type Config struct {
 	Cache    platformconfig.CacheConfig    `mapstructure:"cache"`
 	Kafka    platformconfig.KafkaConfig    `mapstructure:"kafka"`
 	Resend   ResendConfig                  `mapstructure:"resend"`
+	Firebase FirebaseConfig                `mapstructure:"firebase"`
+	Identity IdentityConfig                `mapstructure:"identity"`
 	Worker   WorkerConfig                  `mapstructure:"worker"`
 	OTel     platformconfig.OTelConfig     `mapstructure:"otel"`
 	Log      platformconfig.LogConfig      `mapstructure:"log"`
@@ -42,6 +45,27 @@ type Config struct {
 type ResendConfig struct {
 	APIKey string `mapstructure:"api_key"`
 	From   string `mapstructure:"from"`
+}
+
+// FirebaseConfig holds the service-account credentials for the FCM push
+// provider. Both unset = push disabled (push targets are skipped); both set =
+// ambiguous and rejected at boot. The credentials are secrets and only ever
+// flow into the provider - they must never be logged.
+type FirebaseConfig struct {
+	ServiceAccountFile string `mapstructure:"service_account_file"`
+	ServiceAccountJSON string `mapstructure:"service_account_json"`
+}
+
+// PushEnabled reports whether the push provider can be constructed.
+func (c FirebaseConfig) PushEnabled() bool {
+	return c.ServiceAccountFile != "" || c.ServiceAccountJSON != ""
+}
+
+// IdentityConfig points at identity's gRPC server, used to resolve a push
+// recipient's device tokens. Empty disables the lookup: push targets then
+// resolve to zero devices and are skipped.
+type IdentityConfig struct {
+	GRPCTarget string `mapstructure:"grpc_target"`
 }
 
 // WorkerConfig holds the scheduled maintenance intervals for the worker
@@ -223,6 +247,18 @@ func (c *Config) validate() error {
 		fail("resend.from must not be empty")
 	}
 
+	// Firebase validation: push is optional, but ambiguous credentials are a
+	// deployment error that must fail at boot, not at the first push.
+	if c.Firebase.ServiceAccountFile != "" && c.Firebase.ServiceAccountJSON != "" {
+		fail(
+			"firebase.service_account_file and firebase.service_account_json are mutually exclusive; set exactly one",
+		)
+	}
+
+	if c.Firebase.ServiceAccountJSON != "" && !json.Valid([]byte(c.Firebase.ServiceAccountJSON)) {
+		fail("firebase.service_account_json must be a valid JSON document")
+	}
+
 	// Worker maintenance validation.
 	if c.Worker.ReclaimInterval <= 0 {
 		fail("worker.reclaim_interval must be > 0, got %s", c.Worker.ReclaimInterval)
@@ -295,6 +331,11 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("resend.api_key", "")
 	v.SetDefault("resend.from", "")
+
+	v.SetDefault("firebase.service_account_file", "")
+	v.SetDefault("firebase.service_account_json", "")
+
+	v.SetDefault("identity.grpc_target", "")
 
 	v.SetDefault("worker.reclaim_interval", "1m")
 	v.SetDefault("worker.lease_timeout", "10m")

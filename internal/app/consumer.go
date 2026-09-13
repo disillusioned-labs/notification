@@ -15,10 +15,13 @@ import (
 
 	"github.com/disillusioned-labs/notification/internal/config"
 	"github.com/disillusioned-labs/notification/internal/consumer"
+	"github.com/disillusioned-labs/notification/internal/identity"
 	"github.com/disillusioned-labs/notification/internal/provider"
+	"github.com/disillusioned-labs/notification/internal/provider/fcm"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
+	platformgrpc "github.com/disillusioned-labs/platform/grpc"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
@@ -206,6 +209,49 @@ func RunConsumer(cfg *config.Config) error {
 		)
 	}
 
+	// Push is optional: without Firebase credentials the FCM provider is not
+	// registered and push targets are skipped at creation time (the providers
+	// table row alone is not enough to deliver).
+	pushEnabled := false
+	if cfg.Firebase.PushEnabled() {
+		fcmProvider, err := fcm.NewFCMProvider(fcm.Config{
+			ServiceAccountJSON: cfg.Firebase.ServiceAccountJSON,
+			ServiceAccountFile: cfg.Firebase.ServiceAccountFile,
+		}, nil)
+		if err != nil {
+			return fmt.Errorf("create firebase push provider: %w", err)
+		}
+
+		if err := providers.Register(fcm.ProviderName, fcmProvider); err != nil {
+			return fmt.Errorf("register firebase push provider: %w", err)
+		}
+
+		pushEnabled = true
+
+		log.Info("push channel enabled", "provider", fcm.ProviderName)
+	} else {
+		log.Info("push channel disabled: no firebase credentials configured")
+	}
+
+	// Device token resolution: with a gRPC target the push fan-out asks
+	// identity for the recipient's tokens; without one a noop resolver answers
+	// "no devices", which keeps email flowing in deployments without push.
+	var deviceResolver identity.DeviceTokenResolver = identity.NewNoopResolver()
+	if cfg.Identity.GRPCTarget != "" {
+		identityConn, err := platformgrpc.NewClient(
+			cfg.Identity.GRPCTarget,
+			platformgrpc.WithLogger(log),
+		)
+		if err != nil {
+			return fmt.Errorf("connect identity grpc: %w", err)
+		}
+		defer identityConn.Close()
+
+		deviceResolver = identity.NewGRPCIdentityClient(identityConn)
+
+		log.Info("identity grpc connected", "target", cfg.Identity.GRPCTarget)
+	}
+
 	// -------------------------------------------------------------------------
 	// Render
 	// -------------------------------------------------------------------------
@@ -225,6 +271,8 @@ func RunConsumer(cfg *config.Config) error {
 		providers,
 		renderer,
 		retryPolicy,
+		deviceResolver,
+		pushEnabled,
 		notificationMetrics,
 		log,
 	)

@@ -15,6 +15,10 @@ type ApprovalStepActivated struct {
 	Step                   int    `json:"step"`
 }
 
+// TransactionRef lets the push renderer attach the transaction id to
+// the message data map, so a client can open the transaction on tap.
+func (p *ApprovalStepActivated) TransactionRef() string { return p.TransactionID }
+
 func (p *ApprovalStepActivated) Validate() error {
 	if strings.TrimSpace(p.ApproverName) == "" {
 		return errors.New("approver_name is required")

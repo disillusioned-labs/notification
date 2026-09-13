@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/disillusioned-labs/notification/internal/constant"
+	"github.com/disillusioned-labs/notification/internal/identity"
 	"github.com/disillusioned-labs/notification/internal/provider"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service"
@@ -45,19 +46,29 @@ type notificationService struct {
 	providers  provider.Registry
 	renderer   template.Renderer
 	retry      retry.RetryPolicy
-	metrics    Metrics
-	log        *slog.Logger
+	// resolver turns a push target's destination (a user id) into device
+	// tokens. It is only consulted for push targets; email targets carry
+	// their destination directly in the event.
+	resolver identity.DeviceTokenResolver
+	// pushEnabled reports whether the FCM provider was constructed at boot.
+	// A push target when pushEnabled is false is skipped with a warning
+	// instead of creating a delivery that can never be sent.
+	pushEnabled bool
+	metrics     Metrics
+	log         *slog.Logger
 }
 
-func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, renderer template.Renderer, retry retry.RetryPolicy, metrics Metrics, log *slog.Logger) NotificationService {
+func NewNotificationService(instanceID string, repo repository.Store, providers provider.Registry, renderer template.Renderer, retry retry.RetryPolicy, resolver identity.DeviceTokenResolver, pushEnabled bool, metrics Metrics, log *slog.Logger) NotificationService {
 	return &notificationService{
-		instanceID: instanceID,
-		repo:       repo,
-		providers:  providers,
-		renderer:   renderer,
-		retry:      retry,
-		metrics:    metrics,
-		log:        log,
+		instanceID:  instanceID,
+		repo:        repo,
+		providers:   providers,
+		renderer:    renderer,
+		retry:       retry,
+		resolver:    resolver,
+		pushEnabled: pushEnabled,
+		metrics:     metrics,
+		log:         log,
 	}
 }
 
@@ -121,6 +132,66 @@ func (n *notificationService) CreateFromEvent(
 		return nil
 	}
 
+	// Expand targets into concrete destinations BEFORE opening the
+	// transaction: a push target addresses a user, and the token fan-out is a
+	// gRPC round trip that must never run inside a DB transaction. Email
+	// targets already carry their destination. Zero devices is not an error -
+	// the notification row and the other channels' deliveries still happen.
+	type expandedTarget struct {
+		channel     string
+		destination string
+	}
+
+	expanded := make([]expandedTarget, 0, len(created.Targets))
+
+	for _, target := range created.Targets {
+		if target.Channel != notification.ChannelPush {
+			expanded = append(expanded, expandedTarget{
+				channel:     target.Channel,
+				destination: target.Destination,
+			})
+			continue
+		}
+
+		if !n.pushEnabled {
+			n.log.WarnContext(
+				ctx,
+				"push target skipped: push provider is not configured",
+				"event_id", event.EventID,
+				"notification_type", created.NotificationType,
+			)
+			continue
+		}
+
+		tokens, err := n.resolver.GetActiveDeviceTokens(ctx, target.Destination)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "resolve device tokens")
+			n.log.ErrorContext(ctx, "resolve device tokens failed", "error", err, "event_id", event.EventID)
+
+			// At-least-once: failing the event redelivers it; nothing is
+			// partially persisted because the transaction has not opened.
+			return fmt.Errorf("resolve device tokens for push target: %w", err)
+		}
+
+		if len(tokens) == 0 {
+			n.log.InfoContext(
+				ctx,
+				"push target skipped: recipient has no active devices",
+				"event_id", event.EventID,
+				"notification_type", created.NotificationType,
+			)
+			continue
+		}
+
+		for _, token := range tokens {
+			expanded = append(expanded, expandedTarget{
+				channel:     target.Channel,
+				destination: token,
+			})
+		}
+	}
+
 	err = n.repo.ExecTx(ctx, func(q repository.Querier) error {
 		notification, err := q.CreateNotification(
 			ctx,
@@ -141,42 +212,48 @@ func (n *notificationService) CreateFromEvent(
 			return fmt.Errorf("create notification: %w", err)
 		}
 
-		for _, target := range created.Targets {
-			providers, err := q.ListActiveProvidersByType(
-				ctx,
-				target.Channel,
-			)
-			if err != nil {
-				return fmt.Errorf(
-					"list providers for channel %q: %w",
-					target.Channel,
-					err,
-				)
-			}
+		// The providers table maps channel -> provider name; resolve it once
+		// per channel, not once per fanned-out device.
+		providerByChannel := make(map[string]repository.Provider, len(created.Targets))
 
-			if len(providers) == 0 {
-				return fmt.Errorf(
-					"no active provider configured for channel %q",
-					target.Channel,
+		for _, target := range expanded {
+			if _, ok := providerByChannel[target.channel]; !ok {
+				providers, err := q.ListActiveProvidersByType(
+					ctx,
+					target.channel,
 				)
-			}
+				if err != nil {
+					return fmt.Errorf(
+						"list providers for channel %q: %w",
+						target.channel,
+						err,
+					)
+				}
 
-			provider := providers[0]
+				if len(providers) == 0 {
+					return fmt.Errorf(
+						"no active provider configured for channel %q",
+						target.channel,
+					)
+				}
+
+				providerByChannel[target.channel] = providers[0]
+			}
 
 			delivery, err := q.CreateNotificationDelivery(
 				ctx,
 				repository.CreateNotificationDeliveryParams{
 					NotificationID: notification.ID,
-					Channel:        target.Channel,
-					Provider:       provider.Name,
-					Destination:    target.Destination,
+					Channel:        target.channel,
+					Provider:       providerByChannel[target.channel].Name,
+					Destination:    target.destination,
 					MaxRetries:     int32(n.retry.MaxAttempts),
 				},
 			)
 			if err != nil {
 				return fmt.Errorf(
 					"create %s delivery: %w",
-					target.Channel,
+					target.channel,
 					err,
 				)
 			}

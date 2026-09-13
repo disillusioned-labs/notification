@@ -15,6 +15,10 @@ type ApprovalReminder struct {
 	WaitingDays            int    `json:"waiting_days"`
 }
 
+// TransactionRef lets the push renderer attach the transaction id to
+// the message data map, so a client can open the transaction on tap.
+func (p *ApprovalReminder) TransactionRef() string { return p.TransactionID }
+
 func (p *ApprovalReminder) Validate() error {
 	if strings.TrimSpace(p.ApproverName) == "" {
 		return errors.New("approver_name is required")

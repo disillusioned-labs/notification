@@ -14,12 +14,15 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/disillusioned-labs/notification/internal/config"
+	"github.com/disillusioned-labs/notification/internal/identity"
 	"github.com/disillusioned-labs/notification/internal/provider"
+	"github.com/disillusioned-labs/notification/internal/provider/fcm"
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
 	"github.com/disillusioned-labs/notification/internal/service/outbox"
 	"github.com/disillusioned-labs/notification/internal/worker"
+	platformgrpc "github.com/disillusioned-labs/platform/grpc"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
@@ -194,6 +197,43 @@ func RunWorker(cfg *config.Config) error {
 		)
 	}
 
+	pushEnabled := false
+	if cfg.Firebase.PushEnabled() {
+		fcmProvider, err := fcm.NewFCMProvider(fcm.Config{
+			ServiceAccountJSON: cfg.Firebase.ServiceAccountJSON,
+			ServiceAccountFile: cfg.Firebase.ServiceAccountFile,
+		}, nil)
+		if err != nil {
+			return fmt.Errorf("create firebase push provider: %w", err)
+		}
+
+		if err := providers.Register(fcm.ProviderName, fcmProvider); err != nil {
+			return fmt.Errorf("register firebase push provider: %w", err)
+		}
+
+		pushEnabled = true
+
+		log.Info("push channel enabled", "provider", fcm.ProviderName)
+	} else {
+		log.Info("push channel disabled: no firebase credentials configured")
+	}
+
+	var deviceResolver identity.DeviceTokenResolver = identity.NewNoopResolver()
+	if cfg.Identity.GRPCTarget != "" {
+		identityConn, err := platformgrpc.NewClient(
+			cfg.Identity.GRPCTarget,
+			platformgrpc.WithLogger(log),
+		)
+		if err != nil {
+			return fmt.Errorf("connect identity grpc: %w", err)
+		}
+		defer identityConn.Close()
+
+		deviceResolver = identity.NewGRPCIdentityClient(identityConn)
+
+		log.Info("identity grpc connected", "target", cfg.Identity.GRPCTarget)
+	}
+
 	// -------------------------------------------------------------------------
 	// Kafka
 	// -------------------------------------------------------------------------
@@ -254,6 +294,8 @@ func RunWorker(cfg *config.Config) error {
 		providers,
 		renderer,
 		retryPolicy,
+		deviceResolver,
+		pushEnabled,
 		notificationMetrics,
 		log,
 	)
