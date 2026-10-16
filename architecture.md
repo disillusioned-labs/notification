@@ -505,7 +505,7 @@ The unique violation is treated as a duplicate event and therefore successful pr
 
 ## 14. Notification Delivery
 
-Each target from notification.created produces one notification delivery.
+Each email/SMS target produces one delivery. A push target contains a user ID and expands to one delivery per active device token; zero active tokens produces no push delivery.
 
 Example:
 
@@ -517,13 +517,14 @@ Notification
 └── Push Delivery
 ```
 
-A notification may have multiple deliveries.
-
-The database enforces at most one delivery per channel for a notification.
+A notification may have multiple deliveries. Email/SMS are limited to one destination per channel; push fans out to one delivery per active device token.
 
 ```text
-(notification_id, channel) UNIQUE
+(notification_id, channel) UNIQUE WHERE channel <> 'push'
+(notification_id, destination) UNIQUE WHERE channel = 'push'
 ```
+
+Migration `00010_push_delivery_fanout.sql` enforces these partial unique indexes. Its down migration refuses to discard multiple push deliveries.
 
 ## 15. Provider Selection
 

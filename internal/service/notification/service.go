@@ -671,6 +671,9 @@ func (n *notificationService) handleProviderSuccess(
 		if rows != 1 {
 			return fmt.Errorf("mark delivery sent: expected 1 row, affected %d", rows)
 		}
+		if err := q.RedactPasswordRecoveryPayload(ctx, delivery.NotificationID); err != nil {
+			return fmt.Errorf("redact delivered password recovery link: %w", err)
+		}
 
 		return nil
 	})
@@ -774,6 +777,9 @@ func (n *notificationService) handleProviderFailure(
 
 			if rows != 1 {
 				return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
+			}
+			if err := q.RedactPasswordRecoveryPayload(ctx, delivery.NotificationID); err != nil {
+				return fmt.Errorf("redact failed password recovery link: %w", err)
 			}
 
 			return nil
@@ -931,6 +937,9 @@ func (n *notificationService) handleProviderResolutionFailure(
 		if rows != 1 {
 			return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
 		}
+		if err := q.RedactPasswordRecoveryPayload(ctx, delivery.NotificationID); err != nil {
+			return fmt.Errorf("redact failed password recovery link: %w", err)
+		}
 
 		return nil
 	})
@@ -1024,6 +1033,9 @@ func (n *notificationService) handleRenderingFailure(
 
 		if rows != 1 {
 			return fmt.Errorf("mark delivery failed: expected 1 row, affected %d", rows)
+		}
+		if err := q.RedactPasswordRecoveryPayload(ctx, delivery.NotificationID); err != nil {
+			return fmt.Errorf("redact failed password recovery link: %w", err)
 		}
 
 		return nil

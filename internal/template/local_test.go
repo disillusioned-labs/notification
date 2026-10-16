@@ -80,8 +80,13 @@ func TestRenderPush(t *testing.T) {
 		t.Errorf("title/body must be non-empty, got %q / %q", out.Title, out.Body)
 	}
 
-	if want := "Material gedung"; !contains(out.Body, want) {
-		t.Errorf("body %q should mention %q", out.Body, want)
+	for _, sensitive := range []string{"Material gedung", "Rp 15.000.000", "Budi"} {
+		if contains(out.Title+" "+out.Body, sensitive) {
+			t.Errorf("push text must not expose transaction or identity details, found %q", sensitive)
+		}
+	}
+	if want := "Open the app to view details."; !contains(out.Body, want) {
+		t.Errorf("body %q should direct the user to the authenticated app", out.Body)
 	}
 
 	if out.Data["transaction_id"] != "018f-tx" {

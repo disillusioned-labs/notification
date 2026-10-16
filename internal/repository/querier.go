@@ -35,6 +35,7 @@ type Querier interface {
 	MarkOutboxEventPublished(ctx context.Context, id uuid.UUID) error
 	NotificationExistsByEventID(ctx context.Context, eventID string) (bool, error)
 	ReclaimAbandonedDeliveries(ctx context.Context, lockedAt pgtype.Timestamptz) ([]NotificationDelivery, error)
+	RedactPasswordRecoveryPayload(ctx context.Context, id uuid.UUID) error
 	ReleaseOutboxEventLock(ctx context.Context, id uuid.UUID) error
 }
 

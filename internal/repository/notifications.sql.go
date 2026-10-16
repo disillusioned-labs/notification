@@ -106,3 +106,16 @@ func (q *Queries) NotificationExistsByEventID(ctx context.Context, eventID strin
 	err := row.Scan(&exists)
 	return exists, err
 }
+
+const redactPasswordRecoveryPayload = `-- name: RedactPasswordRecoveryPayload :exec
+UPDATE notifications
+SET payload = '{}'::jsonb,
+    updated_at = now()
+WHERE id = $1
+  AND notification_type = 'password_recovery'
+`
+
+func (q *Queries) RedactPasswordRecoveryPayload(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, redactPasswordRecoveryPayload, id)
+	return err
+}

@@ -13,6 +13,13 @@ SELECT event_id,
 FROM notifications
 WHERE id = $1;
 
+-- name: RedactPasswordRecoveryPayload :exec
+UPDATE notifications
+SET payload = '{}'::jsonb,
+    updated_at = now()
+WHERE id = $1
+  AND notification_type = 'password_recovery';
+
 
 -- name: CreateNotification :one
 INSERT INTO notifications (event_id,

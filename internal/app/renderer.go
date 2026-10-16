@@ -13,6 +13,8 @@ import (
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_invitation_revoked"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_member_removed"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/organization_member_role_updated"
+	"github.com/disillusioned-labs/notification/internal/template/templates/email/password_changed"
+	"github.com/disillusioned-labs/notification/internal/template/templates/email/password_recovery"
 	"github.com/disillusioned-labs/notification/internal/template/templates/email/user_registered"
 )
 
@@ -27,6 +29,8 @@ func buildRenderer() (template.Renderer, error) {
 		"organization_member_removed":      func() template.Payload { return &organization_member_removed.OrganizationMemberRemoved{} },
 		"organization_member_role_updated": func() template.Payload { return &organization_member_role_updated.OrganizationMemberRoleUpdated{} },
 		"organization_deleted":             func() template.Payload { return &organization_deleted.OrganizationDeleted{} },
+		"password_recovery":                func() template.Payload { return &password_recovery.PasswordRecovery{} },
+		"password_changed":                 func() template.Payload { return &password_changed.PasswordChanged{} },
 
 		// Approval notifications, emitted by expense via its outbox on the
 		// notification.transactional lane.
