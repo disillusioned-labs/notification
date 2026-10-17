@@ -7,12 +7,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/disillusioned-labs/notification/internal/repository"
-	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/disillusioned-labs/notification/internal/repository"
+	"github.com/disillusioned-labs/platform/kafka"
 )
 
 var tracer = otel.Tracer("service/outbox")

@@ -19,19 +19,31 @@ env:
   VULN_VERSION: "v1.1.4"
   GOLANGCI_VERSION: "v2.12.2"
 
+defaults:
+  run:
+    working-directory: notification
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: notification/go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
           # Pinned to the version developers run locally, so CI and local
           # results never drift. Bump both together.
           version: ${{ env.GOLANGCI_VERSION }}
+          working-directory: notification
 
   # Proves the documented invariant that `go test ./...` needs no Docker: this
   # job has no services and must stay that way.
@@ -39,9 +51,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: notification/go.mod
       - run: go build ./...
       - run: go test -race ./...
 
@@ -51,18 +70,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: notification/go.mod
       - run: go test -race -tags integration ./...
 
   vuln:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: notification/go.mod
       # Pinned, not @latest: an unpinned scanner turns an unrelated upstream
       # release into a red build on a branch that changed nothing.
       - run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.VULN_VERSION }} ./...
@@ -71,6 +104,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: sqlc-dev/setup-sqlc@v5
         with:
           sqlc-version: ${{ env.SQLC_VERSION }}
@@ -82,21 +122,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: notification/go.mod
       - run: go test -run 'TestShippedExampleEnvIsValid|TestExampleEnvHasNoUnknownKeys' ./internal/config/...
 
   # Builds the real production image so a broken Dockerfile fails here rather
-  # than at release time. Plain `docker build` on purpose: BuildKit is already
-  # the default on GitHub runners, so this needs no third-party action to keep
-  # pinned and working.
+  # than at release time. The shared platform module is a named build context
+  # matching the sibling replacement used by local development.
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: disillusioned-labs/platform
+          path: platform
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: notification
       - run: |
           docker build \
+            --build-context platform=../platform \
             --build-arg VERSION="${{ github.ref_name }}" \
             --build-arg COMMIT="${{ github.sha }}" \
             --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

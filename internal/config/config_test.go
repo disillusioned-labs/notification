@@ -218,6 +218,9 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		{"zero metric interval", func(c *Config) { c.OTel.MetricExportIntervalMillis = 0 }, "otel.metric_export_interval"},
 		{"empty resend api key", func(c *Config) { c.Resend.APIKey = "" }, "resend.api_key"},
 		{"empty resend from", func(c *Config) { c.Resend.From = "" }, "resend.from"},
+		{"identity target requires token outside development", func(c *Config) { c.Identity.GRPCTarget = "identity:9090" }, "identity.grpc_service_token"},
+		{"malformed identity service token", func(c *Config) { c.Identity.GRPCServiceToken = "bad" }, "identity.grpc_service_token"},
+		{"identity target requires TLS outside development", func(c *Config) { c.Identity.GRPCTarget = "identity:9090" }, "grpc_client.tls.enabled"},
 	}
 
 	for _, tt := range tests {
@@ -372,6 +375,9 @@ func validConfig() *Config {
 			},
 		},
 		Resend: ResendConfig{APIKey: "test-api-key", From: "test@example.com"},
+		GRPCClient: platformconfig.GRPCClientConfig{
+			Timeout: 10 * time.Second, MaxRecvMsgSize: 4 * 1024 * 1024, MaxSendMsgSize: 4 * 1024 * 1024,
+		},
 		Worker: WorkerConfig{ReclaimInterval: time.Minute, LeaseTimeout: 10 * time.Minute, CleanupInterval: time.Hour},
 		OTel: platformconfig.OTelConfig{
 			TracesExporter: platformconfig.OTelExporterOTLP, MetricsExporter: platformconfig.OTelExporterOTLP,

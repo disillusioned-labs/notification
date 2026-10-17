@@ -16,9 +16,3 @@ func (p *UserRegisteredPayload) Validate() error {
 
 	return nil
 }
-
-type emailPayload struct {
-	Subject string `json:"subject"`
-	HTML    string `json:"html"`
-	Text    string `json:"text"`
-}

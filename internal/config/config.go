@@ -18,27 +18,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 
 	platformconfig "github.com/disillusioned-labs/platform/config"
+	platformgrpc "github.com/disillusioned-labs/platform/grpc"
 )
 
 // Config is the root of all application settings, one field per subsystem.
 type Config struct {
-	Service  platformconfig.ServiceConfig  `mapstructure:"service"`
-	Postgres platformconfig.PostgresConfig `mapstructure:"postgres"`
-	Redis    platformconfig.RedisConfig    `mapstructure:"redis"`
-	Cache    platformconfig.CacheConfig    `mapstructure:"cache"`
-	Kafka    platformconfig.KafkaConfig    `mapstructure:"kafka"`
-	Resend   ResendConfig                  `mapstructure:"resend"`
-	Firebase FirebaseConfig                `mapstructure:"firebase"`
-	Identity IdentityConfig                `mapstructure:"identity"`
-	Worker   WorkerConfig                  `mapstructure:"worker"`
-	OTel     platformconfig.OTelConfig     `mapstructure:"otel"`
-	Log      platformconfig.LogConfig      `mapstructure:"log"`
+	Service    platformconfig.ServiceConfig    `mapstructure:"service"`
+	Postgres   platformconfig.PostgresConfig   `mapstructure:"postgres"`
+	Redis      platformconfig.RedisConfig      `mapstructure:"redis"`
+	Cache      platformconfig.CacheConfig      `mapstructure:"cache"`
+	Kafka      platformconfig.KafkaConfig      `mapstructure:"kafka"`
+	Resend     ResendConfig                    `mapstructure:"resend"`
+	Firebase   FirebaseConfig                  `mapstructure:"firebase"`
+	Identity   IdentityConfig                  `mapstructure:"identity"`
+	GRPCClient platformconfig.GRPCClientConfig `mapstructure:"grpc_client"`
+	Worker     WorkerConfig                    `mapstructure:"worker"`
+	OTel       platformconfig.OTelConfig       `mapstructure:"otel"`
+	Log        platformconfig.LogConfig        `mapstructure:"log"`
 }
 
 // ResendConfig holds the Resend email API settings.
@@ -65,7 +68,19 @@ func (c FirebaseConfig) PushEnabled() bool {
 // recipient's device tokens. Empty disables the lookup: push targets then
 // resolve to zero devices and are skipped.
 type IdentityConfig struct {
-	GRPCTarget string `mapstructure:"grpc_target"`
+	GRPCTarget       string `mapstructure:"grpc_target"`
+	GRPCServiceToken string `mapstructure:"grpc_service_token"`
+}
+
+func (c IdentityConfig) LogValue() slog.Value {
+	token := ""
+	if c.GRPCServiceToken != "" {
+		token = "xxxxx"
+	}
+	return slog.GroupValue(
+		slog.String("grpc_target", c.GRPCTarget),
+		slog.String("grpc_service_token", token),
+	)
 }
 
 // WorkerConfig holds the scheduled maintenance intervals for the worker
@@ -258,6 +273,22 @@ func (c *Config) validate() error {
 	if c.Firebase.ServiceAccountJSON != "" && !json.Valid([]byte(c.Firebase.ServiceAccountJSON)) {
 		fail("firebase.service_account_json must be a valid JSON document")
 	}
+	if err := platformconfig.ValidateGRPCClient(&c.GRPCClient); err != nil {
+		errs = append(errs, err)
+	}
+	if c.Identity.GRPCTarget != "" {
+		if err := platformconfig.ValidateGRPCTransportSecurity(c.Service.Env, nil, &c.GRPCClient.TLS); err != nil {
+			errs = append(errs, err)
+		}
+		if c.Service.Env != platformconfig.EnvDevelopment && c.Identity.GRPCServiceToken == "" {
+			fail("identity.grpc_service_token must be set when identity.grpc_target is configured outside development")
+		}
+	}
+	if c.Identity.GRPCServiceToken != "" {
+		if err := platformgrpc.ValidateServiceToken(c.Identity.GRPCServiceToken); err != nil {
+			fail("identity.grpc_service_token: %v", err)
+		}
+	}
 
 	// Worker maintenance validation.
 	if c.Worker.ReclaimInterval <= 0 {
@@ -336,6 +367,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("firebase.service_account_json", "")
 
 	v.SetDefault("identity.grpc_target", "")
+	v.SetDefault("identity.grpc_service_token", "")
+	v.SetDefault("grpc_client.timeout", "10s")
+	v.SetDefault("grpc_client.max_recv_msg_size", 4*1024*1024)
+	v.SetDefault("grpc_client.max_send_msg_size", 4*1024*1024)
+	v.SetDefault("grpc_client.tls.enabled", false)
+	v.SetDefault("grpc_client.tls.ca_file", "")
+	v.SetDefault("grpc_client.tls.cert_file", "")
+	v.SetDefault("grpc_client.tls.key_file", "")
+	v.SetDefault("grpc_client.tls.server_name", "")
+	v.SetDefault("grpc_client.tls.mutual_tls", false)
 
 	v.SetDefault("worker.reclaim_interval", "1m")
 	v.SetDefault("worker.lease_timeout", "10m")

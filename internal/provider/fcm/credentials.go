@@ -70,11 +70,6 @@ func (sa *serviceAccount) parsePrivateKey() (*rsa.PrivateKey, error) {
 	return parsed, nil
 }
 
-func (sa *serviceAccount) validate() error {
-	_, err := sa.parsePrivateKey()
-	return err
-}
-
 // tokenCache keeps one OAuth2 access token alive for the process. FCM v1
 // calls are authenticated with a bearer token minted from the service
 // account's JWT assertion; minting on every send would double the requests

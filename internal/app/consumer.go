@@ -21,7 +21,6 @@ import (
 	"github.com/disillusioned-labs/notification/internal/provider/resend"
 	"github.com/disillusioned-labs/notification/internal/repository"
 	"github.com/disillusioned-labs/notification/internal/service/notification"
-	platformgrpc "github.com/disillusioned-labs/platform/grpc"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
@@ -238,14 +237,11 @@ func RunConsumer(cfg *config.Config) error {
 	// "no devices", which keeps email flowing in deployments without push.
 	var deviceResolver identity.DeviceTokenResolver = identity.NewNoopResolver()
 	if cfg.Identity.GRPCTarget != "" {
-		identityConn, err := platformgrpc.NewClient(
-			cfg.Identity.GRPCTarget,
-			platformgrpc.WithLogger(log),
-		)
+		identityConn, err := newIdentityClient(cfg, log)
 		if err != nil {
 			return fmt.Errorf("connect identity grpc: %w", err)
 		}
-		defer identityConn.Close()
+		defer func() { _ = identityConn.Close() }()
 
 		deviceResolver = identity.NewGRPCIdentityClient(identityConn)
 

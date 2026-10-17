@@ -80,7 +80,7 @@ func TestSendHappyPath(t *testing.T) {
 			t.Error("assertion is required")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
+		_, _ = fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
 	}))
 	defer tokenSrv.Close()
 
@@ -109,7 +109,7 @@ func TestSendHappyPath(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"projects/test-project/messages/msg-1"}`)
+		_, _ = fmt.Fprint(w, `{"name":"projects/test-project/messages/msg-1"}`)
 	}))
 	defer sendSrv.Close()
 
@@ -140,16 +140,16 @@ func TestSendHappyPath(t *testing.T) {
 func TestSendRetriesUseCachedToken(t *testing.T) {
 	var tokenRequests atomic.Int32
 
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		tokenRequests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
+		_, _ = fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
 	}))
 	defer tokenSrv.Close()
 
 	sendSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"projects/test-project/messages/msg-1"}`)
+		_, _ = fmt.Fprint(w, `{"name":"projects/test-project/messages/msg-1"}`)
 	}))
 	defer sendSrv.Close()
 
@@ -193,13 +193,13 @@ func TestSendErrorMapping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
+				_, _ = fmt.Fprint(w, `{"access_token":"tok-1","expires_in":3600}`)
 			}))
 			defer tokenSrv.Close()
 
 			sendSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tc.status)
-				fmt.Fprint(w, `{"error":{"code":404,"message":"Requested entity was not found."}}`)
+				_, _ = fmt.Fprint(w, `{"error":{"code":404,"message":"Requested entity was not found."}}`)
 			}))
 			defer sendSrv.Close()
 

@@ -14,10 +14,8 @@ import (
 	texttemplate "text/template"
 )
 
-var (
-	//go:embed templates/*
-	templateFS embed.FS
-)
+//go:embed templates/*
+var templateFS embed.FS
 
 const (
 	emailTemplateRoot = "templates/email"

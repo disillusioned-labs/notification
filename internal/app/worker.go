@@ -22,7 +22,6 @@ import (
 	"github.com/disillusioned-labs/notification/internal/service/notification"
 	"github.com/disillusioned-labs/notification/internal/service/outbox"
 	"github.com/disillusioned-labs/notification/internal/worker"
-	platformgrpc "github.com/disillusioned-labs/platform/grpc"
 	"github.com/disillusioned-labs/platform/kafka"
 	"github.com/disillusioned-labs/platform/postgres"
 	"github.com/disillusioned-labs/platform/retry"
@@ -220,14 +219,11 @@ func RunWorker(cfg *config.Config) error {
 
 	var deviceResolver identity.DeviceTokenResolver = identity.NewNoopResolver()
 	if cfg.Identity.GRPCTarget != "" {
-		identityConn, err := platformgrpc.NewClient(
-			cfg.Identity.GRPCTarget,
-			platformgrpc.WithLogger(log),
-		)
+		identityConn, err := newIdentityClient(cfg, log)
 		if err != nil {
 			return fmt.Errorf("connect identity grpc: %w", err)
 		}
-		defer identityConn.Close()
+		defer func() { _ = identityConn.Close() }()
 
 		deviceResolver = identity.NewGRPCIdentityClient(identityConn)
 
